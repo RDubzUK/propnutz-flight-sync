@@ -49,6 +49,10 @@ The most recent counterpart search is saved with the session. Searching one FPV 
 
 Click **Review** to scroll to the synchronized players. Use **Play together**, pause, shared seek, slow playback and the audio selector. The players show the original timestamps and stay within the shared footage interval.
 
+The timeline covers **all footage available from both sources at the saved sync offset**, including before and after matching audio. Ten seconds of matching audio can anchor several minutes of shared video. Each pair's range is recomputed from the full video durations when the session is loaded; sampled audio and green evidence bands never trim this range. The same full range is available for export unless you explicitly trim it.
+
+**Start of shared footage** returns to the earliest point present in both recordings. **Jump to matching audio** goes to the first green evidence section so you can check synchronization, then seek or play anywhere in the full shared range. The review shows matching-audio seconds separately from the full shared-footage length. If the offset itself places one recording near its end, only the remaining footage can overlap; adjusting the reviewed offset recalculates the range.
+
 Browser-compatible originals play directly. If a camera codec cannot be played, choose **480p fragments on demand**. Only short fragments near the playhead are generated, while exports retain source resolution.
 
 Saved audio energy trends are shown below the players. Green bands show sampled sections that agree at the proposed offset; gaps are unsampled audio. This is an energy trend display, not a full-recording waveform.

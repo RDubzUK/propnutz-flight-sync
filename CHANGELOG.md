@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recompute pair review/export ranges from complete source durations and the saved sync offset when loading sessions, including older saved pairs. Audio evidence cannot override the shared-footage range.
+- Show matching-audio seconds separately from full shared footage, with buttons to return to its start or jump to matching audio. Keep green bands limited to the observed audio evidence.
 - Replace the Filename time indicator in Video lists & match scope with Modified date, using each recording's saved filesystem timestamp.
 - Show the file's modification date and time beneath its filename in the browser's local time zone. Existing sessions do not need rescanning for this display.
 

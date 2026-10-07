@@ -91,7 +91,7 @@ function rankedPairs(pairs) {
   return [...pairs].sort((a,b)=>rank(a)-rank(b)||(b.score||0)-(a.score||0));
 }
 function renderPairList(target, pairs, {stickOnly=false, empty='No candidate pairs yet.'} = {}) {
-  $(target).innerHTML=pairs.length?`<table class="pair-table"><thead><tr><th>${stickOnly?'StickCam recording':'Recordings'}</th><th>Evidence</th><th>Common footage</th><th></th></tr></thead><tbody>${pairs.map(p=>{
+  $(target).innerHTML=pairs.length?`<table class="pair-table"><thead><tr><th>${stickOnly?'StickCam recording':'Recordings'}</th><th>Evidence</th><th>Full shared footage</th><th></th></tr></thead><tbody>${pairs.map(p=>{
     const sections=p.evidence?.sections;
     const fpvName=escape(record(p.fpv)?.name || 'Missing FPV file');
     const stickName=escape(record(p.stick)?.name || 'Missing StickCam file');
@@ -168,11 +168,28 @@ function renderExports(records, target) {
   $(target).innerHTML=records.length?records.map(e=>`<div class="export-row"><span><strong>${escape(e.session_name)}</strong><br><small>${e.pairs} pair${e.pairs!==1?'s':''} · ${e.profile.toUpperCase()} · ${e.fps}fps · ${new Date(e.created*1000).toLocaleString()}</small></span><a href="/api/exports/${e.session}/${e.id}/download">Download ZIP</a></div>`).join(''):'<p class="hint">No completed exports yet.</p>';
 }
 async function refreshExports() { const all=await api('/api/exports'), key=JSON.stringify(all);if(key!==exportKey){exportKey=key;renderExports(all,'saved-exports');} }
+function matchedAudioRanges(p) {
+  if (!p) return [];
+  const windows=(p.evidence?.sections?.windows || []).filter(w=>w.matched && Number.isFinite(w.start) && Number.isFinite(w.end))
+    .map(w=>({start:Math.max(0,w.start-p.radio_start),end:Math.min(p.overlap_duration,w.end-p.radio_start)}))
+    .filter(w=>w.end>w.start).sort((a,b)=>a.start-b.start);
+  const ranges=[];
+  for (const window of windows) {
+    const previous=ranges[ranges.length-1];
+    if (previous && window.start<=previous.end) previous.end=Math.max(previous.end,window.end);
+    else ranges.push({...window});
+  }
+  return ranges;
+}
 function updateReview() {
   const p=currentPair(); if(!p)return;
   $('review-name').textContent=record(p.fpv)?.name+' + '+record(p.stick)?.name;
   $('fpv-title').textContent='FPV · '+record(p.fpv)?.name; $('stick-title').textContent='StickCam · '+record(p.stick)?.name;
-  $('review-details').textContent=`${p.confirmed?'Confirmed alignment':p.confidence} · common footage ${duration(p.overlap_duration)} · FPV ${fmt(p.fpv_start)}–${fmt(p.fpv_start+p.overlap_duration)} · StickCam ${fmt(p.radio_start)}–${fmt(p.radio_start+p.overlap_duration)}`;
+  $('review-details').textContent=`${p.confirmed?'Confirmed alignment':p.confidence} · full shared footage ${duration(p.overlap_duration)} · FPV ${fmt(p.fpv_start)}–${fmt(p.fpv_start+p.overlap_duration)} · StickCam ${fmt(p.radio_start)}–${fmt(p.radio_start+p.overlap_duration)}`;
+  const matches=matchedAudioRanges(p), matchedSeconds=matches.reduce((sum,w)=>sum+w.end-w.start,0);
+  $('review-evidence').textContent=matches.length?`Matching audio evidence: ${matchedSeconds.toFixed(1)}s within ${duration(p.overlap_duration)} of shared footage. The sync offset applies throughout the full shared range.`:'Playback covers the full shared footage at the saved sync offset. No matching audio sections are marked for this alignment.';
+  $('review-start').disabled=loading || $('play').disabled;
+  $('review-match').disabled=loading || $('play').disabled || !matches.length;
   $('offset').value=p.offset.toFixed(3); $('seek').max=p.overlap_duration;
   $('unconfirm').hidden=!p.confirmed; $('confirm').textContent=p.confirmed?'Confirmed · refresh suggestions':'Confirm this pair & suggest others';
 }
@@ -210,7 +227,7 @@ async function openPair(id, {scrollToPreview=false} = {}) {
     if(generation!==token)return;
     const failed=loaded.find(r=>r.status==='rejected');if(failed)throw failed.reason;
     $('play').disabled=false; audioChoice(); seek(0);
-  } finally {if(generation===token)loading=false;await tracePromise;}
+  } finally {if(generation===token){loading=false;updateReview();}await tracePromise;}
 }
 function seek(at) {
   const p=currentPair();if(!p)return;
@@ -230,7 +247,7 @@ function play() {
 function draw(canvas,trace,p,isStick,at) {
   const width=Math.max(400,canvas.clientWidth),height=110;canvas.width=width;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);
   if(!p)return; const start=isStick?p.radio_start:p.fpv_start, span=p.overlap_duration;
-  ctx.fillStyle='#54cb7d33';for(const w of p.evidence?.sections?.windows||[]){if(!w.matched)continue;const begin=w.start-p.radio_start,end=w.end-p.radio_start;ctx.fillRect(Math.max(0,begin/span*width),0,Math.max(0,(Math.min(span,end)-Math.max(0,begin))/span*width),height);}
+  ctx.fillStyle='#54cb7d33';for(const w of matchedAudioRanges(p))ctx.fillRect(w.start/span*width,0,(w.end-w.start)/span*width,height);
   ctx.strokeStyle=isStick?'#ef7669':'#49a7f2';ctx.lineWidth=1.4;ctx.beginPath();let previous=null;
   for(let i=0;i<(trace?.time?.length||0);i++){const t=trace.time[i]-start;if(t<0||t>span){previous=null;continue;}const x=t/span*width,y=height/2-(trace.energy[i]||0)*height/12; if(previous!=null && trace.segments[i]===trace.segments[i-1] && trace.time[i]-trace.time[i-1]<.3)ctx.lineTo(x,y);else ctx.moveTo(x,y);previous=i;}ctx.stroke();
   ctx.strokeStyle='#f5f6fa';ctx.lineWidth=1;const x=at/span*width;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();
@@ -294,6 +311,8 @@ async function saveClockSettings(){if(!sid)return;try{doc=await api(`/api/sessio
 $('filenames').onchange=saveClockSettings;$('modified-kind').onchange=saveClockSettings;
 action('manual-add',async()=>{const f=$('manual-fpv').value,s=$('manual-stick').value;if(!f||!s)throw new Error('Wait for scanning, then choose one video of each type');doc=await post(`/api/sessions/${sid}/pairs`,{fpv:f,stick:s,offset:Number($('manual-offset').value),confirmed:false});renderKey='';render();await openPair(doc.pairs.find(p=>p.fpv===f&&p.stick===s).id);});
 action('play',play);action('pause',pause);$('seek').oninput=e=>{pause();seek(e.target.value);};$('listen').onchange=audioChoice;$('speed').onchange=()=>{fpv.playbackRate=stick.playbackRate=Number($('speed').value);};$('preview-mode').onchange=()=>pairId&&openPair(pairId).catch(e=>notice(e.message,true));
+action('review-start',()=>{pause();seek(0);});
+action('review-match',()=>{const first=matchedAudioRanges(currentPair())[0];if(first){pause();seek(first.start);}});
 action('apply-offset',()=>alignment(false));action('confirm',()=>alignment(true));action('unconfirm',()=>alignment(false));
 document.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=()=>{$('offset').value=(Number($('offset').value)+Number(b.dataset.nudge)).toFixed(3);alignment(false).catch(e=>notice(e.message,true));});
 $('show-audio').onchange=e=>{$('audio-charts').hidden=!e.target.checked;if(e.target.checked)drawCharts();};window.addEventListener('resize',()=>drawCharts());

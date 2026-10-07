@@ -66,7 +66,7 @@ def task_save_status(doc):
 
 def session(sid):
     try:
-        return task_save_status(store.read(sid))
+        return task_save_status(matching.refresh_pair_ranges(store.read(sid)))
     except (FileNotFoundError, ValueError):
         raise HTTPException(404, "Session not found") from None
 

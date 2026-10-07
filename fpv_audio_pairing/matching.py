@@ -8,6 +8,11 @@ from statistics import median
 
 
 def overlap(fpv_duration, stick_duration, offset):
+    """Intersect the complete source timelines at the sync offset.
+
+    Audio evidence establishes the offset; its sampled/matching span does not
+    limit the footage that can be reviewed or exported at that offset.
+    """
     if not all(math.isfinite(v) for v in (fpv_duration, stick_duration, offset)):
         raise ValueError("Alignment must use finite durations and offset")
     fstart, sstart = max(0., -offset), max(0., offset)
@@ -21,8 +26,19 @@ def pair_id(fpv, stick):
 
 def make_pair(fpv, stick, offset, **details):
     return {"id": pair_id(fpv["id"], stick["id"]), "fpv": fpv["id"], "stick": stick["id"],
-            "offset": float(offset), "confirmed": False,
-            **overlap(fpv["metadata"]["duration"], stick["metadata"]["duration"], offset), **details}
+            "offset": float(offset), "confirmed": False, **details,
+            **overlap(fpv["metadata"]["duration"], stick["metadata"]["duration"], offset)}
+
+
+def refresh_pair_ranges(session):
+    """Rebuild derived ranges, including older saved pairs, without moving sync."""
+    records = {r["id"]: r for r in session["videos"]}
+    for pair in session["pairs"]:
+        fpv, stick = records.get(pair["fpv"]), records.get(pair["stick"])
+        if pair.get("stale") or not fpv or not stick or not fpv.get("metadata") or not stick.get("metadata"):
+            continue
+        pair.update(overlap(fpv["metadata"]["duration"], stick["metadata"]["duration"], pair["offset"]))
+    return session
 
 
 def clock_start(record, method, modified_kind="end"):
@@ -58,6 +74,7 @@ def clock_model(session, method):
 
 def suggest(session):
     """Allow many FPV parts per StickCam; never treat duration as identity proof."""
+    refresh_pair_ranges(session)
     models = [m for method in ["modified", *( ["filename"] if session.get("use_filenames", True) else [])]
               if (m := clock_model(session, method))]
     session["clocks"] = models

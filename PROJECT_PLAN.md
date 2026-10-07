@@ -11,12 +11,12 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 - Independent package, environment, local data and port 8768.
 - Folder browsing, mounted shares, named sessions, rename/delete and folder rescan.
 - Collapsible panels; creation panel hidden after choosing a session.
-- Two video lists with durations and status tables for audio, saved fingerprints and filename timestamps.
+- Two video lists with durations, modification dates and status tables for audio, saved fingerprints and modified-date availability.
 - All/selected/seed matching scopes and cached boundary audio fingerprints.
 - Dedicated Find StickCam counterpart workflow: one FPV recording against all audio-bearing StickCam recordings, with local progress, saved search summary and ranked review links.
 - Distinctive spectral matching with independent, same-offset audio trend checks and repeated-section evidence.
 - Several candidate StickCam owners per FPV clip, without forcing a one-to-one relationship.
-- Synchronized two-video review, audio feed selection, slow playback and editable alignment.
+- Synchronized two-video review throughout the full shared footage, independent of audio-evidence length; audio feed selection, slow playback, editable alignment and a jump to matching audio.
 - Saved audio trends with matching sections and a playback cursor.
 - User-confirmed clock anchors, end/start modification date interpretation and optional filename timestamps.
 - Timestamp suggestions for other clips and split FPV parts, with inconsistent/repeated clock handling.
