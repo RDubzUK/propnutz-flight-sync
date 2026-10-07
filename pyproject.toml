@@ -13,7 +13,7 @@ dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "numpy>=1.26,<3", "scip
 fpv-audio-pairing = "fpv_audio_pairing.web:main"
 
 [tool.setuptools.package-data]
-fpv_audio_pairing = ["static/*"]
+fpv_audio_pairing = ["static/*", "static/brand/*"]
 
 [tool.setuptools.packages.find]
 include = ["fpv_audio_pairing*"]

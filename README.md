@@ -8,34 +8,30 @@ This project has its own folder, Python environment, port and data. It does not 
 
 The package and project folder remain named `fpv-audio-pairing`. Barlow and Barlow Condensed are bundled under the SIL Open Font License; copies of the licenses are in `fpv_audio_pairing/static/brand/`. The warehouse image and favicon come from the PropNutz site and are used for its associated tool.
 
-## Run
+## Documentation
 
-Requires Python 3.11 or newer, [uv](https://docs.astral.sh/uv/) and FFmpeg/ffprobe on PATH.
+- [Installation guide](docs/INSTALL.md): Windows, Linux and macOS setup, FFmpeg, LAN access, startup, updates and troubleshooting.
+- [User guide](docs/USER_GUIDE.md): matching scopes, pair review, alignment, clock suggestions, exports and session backups.
+- [Project plan](PROJECT_PLAN.md): implemented scope and remaining work.
+
+The repository is private: [RDubzUK/propnutz-flight-sync](https://github.com/RDubzUK/propnutz-flight-sync). Invited collaborators can clone it; other testers need a source ZIP shared by the owner. Videos, session data, caches and exports are excluded from Git.
+
+## Quick start
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [FFmpeg/ffprobe](https://ffmpeg.org/download.html) first. uv can install the required Python 3.11 interpreter. No Rust toolchain, GPU or original project is required.
 
 ```bash
-cd /home/rdubz/vscode_projects/fpv-audio-pairing
-./start.sh
+git clone https://github.com/RDubzUK/propnutz-flight-sync.git
+cd propnutz-flight-sync
+uv sync --frozen --python 3.11
+uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
 ```
 
-Open **http://localhost:8768/**, or **http://192.168.0.114:8768/** from the LAN if the server still has that IP. The default bind is `0.0.0.0`. The original app retains port 8767.
+Open **http://localhost:8768/**. For LAN access, change the host to `0.0.0.0` and open `http://<server-LAN-IP>:8768/` on another device. The CLI and `start.sh` default to LAN binding; the quick-start command above explicitly chooses local-only access. The original app uses port 8767.
 
-Alternatively:
+The same `uv sync` and `uv run` commands work in Windows PowerShell, Linux shells and macOS Terminal. If Git is unavailable, download and extract the source ZIP, enter its directory, then run the final two commands. The committed `uv.lock` records dependency versions.
 
-```bash
-uv venv --python 3.11
-uv pip install --python .venv/bin/python -e .
-.venv/bin/python -m fpv_audio_pairing.web --host 0.0.0.0 --port 8768
-```
-
-Windows:
-
-```powershell
-uv venv --python 3.11
-uv pip install --python .venv/Scripts/python.exe -e .
-.venv/Scripts/python.exe -m fpv_audio_pairing.web --host 0.0.0.0 --port 8768
-```
-
-An optional independent user service is provided in `deploy/fpv-audio-pairing.service`.
+An optional Linux user service is provided in `deploy/fpv-audio-pairing.service`; edit its two paths to match your checkout before installing it. See the installation guide.
 
 ## Workflow
 
