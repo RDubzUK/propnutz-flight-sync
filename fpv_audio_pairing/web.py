@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
@@ -21,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store, matching, preview
+from . import store, matching, preview, export_locations
 from .cache import _key, get_or_extract
 from .evidence import assess_audio_pair, audio_sections
 from .exports import export_pair, stream_archive
@@ -185,6 +186,7 @@ def audio(sid, r, boundary):
 def scan(sid, progress, flag):
     s = session(sid)
     old = {r["path"]: r for r in s["videos"]}
+    export_folders = {Path(e["directory"]) for e in export_locations.records(include_pending=True)}
     found = []
     for kind, root in s["folders"].items():
         folder = Path(root)
@@ -195,7 +197,10 @@ def scan(sid, progress, flag):
             if flag.is_set():
                 raise RuntimeError("Cancelled")
             if path.is_file() and path.suffix.lower() in EXTENSIONS:
-                resolved = str(path.resolve())
+                resolved_path = path.resolve()
+                if any(parent in export_folders for parent in resolved_path.parents):
+                    continue
+                resolved = str(resolved_path)
                 stat = path.stat()
                 record = {"id": hashlib.sha256(f"{kind}:{resolved}".encode()).hexdigest()[:32], "kind": kind,
                           "name": path.name, "path": resolved, "mtime": stat.st_mtime,
@@ -407,7 +412,7 @@ def delete(sid: str):
         idle(sid)
         shutil.rmtree(store.directory(sid))
         TASK_SAVE_ERRORS.pop(sid, None)
-    return {"deleted": True, "exports_preserved": str(store.ROOT / "exports" / sid)}
+    return {"deleted": True, "exports_preserved": True}
 
 
 @app.post("/api/sessions/{sid}/cancel")
@@ -547,6 +552,7 @@ class ExportOptions(BaseModel):
     profile: str = "copy"
     trim_start: float = Field(default=0, ge=0, allow_inf_nan=False)
     trim_end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    destination: str = Field(default="", max_length=4096)
 
 
 @app.post("/api/sessions/{sid}/export")
@@ -567,18 +573,32 @@ def export(sid: str, options: ExportOptions):
         end = options.trim_end if options.trim_end is not None else p["overlap_duration"]
         if end > p["overlap_duration"] or end - options.trim_start < max(1 / rate for rate in rates):
             raise HTTPException(400, "Trim must fit inside every selected pair's overlap")
+    try:
+        root = export_locations.destination(options.destination.strip())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(400, f"Cannot use export destination: {exc}") from None
     eid = uuid.uuid4().hex
-    directory = store.ROOT / "exports" / store.identifier(sid) / eid
     def run(progress, flag):
-        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            directory = export_locations.create_directory(root, s["name"])
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Cannot write exports to {root}. Choose a writable output folder. {exc}") from None
+        store.update(sid, lambda doc: doc.update(export_destination=options.destination.strip()))
+        export_locations.register_pending({"id": eid, "session": sid, "session_name": s["name"],
+            "created": time.time(), "pairs": len(selected), "profile": options.profile,
+            "fps": options.fps if options.fps is not None else "original", "directory": str(directory)})
+        progress(0, f"Saving aligned clips to {directory}")
         manifests = []
+        pair_directories = []
         for index, p in enumerate(selected):
             f, r = video(sid, p["fpv"]), video(sid, p["stick"])
             end = options.trim_end if options.trim_end is not None else p["overlap_duration"]
             info = p | {"radio_start": p["radio_start"] + options.trim_start, "fpv_start": p["fpv_start"] + options.trim_start,
                         "overlap_duration": end - options.trim_start, "fpv_source": f["name"], "stick_source": r["name"],
                         "source_metadata": {"radio": r["metadata"], "fpv": f["metadata"]}}
-            manifest = export_pair(info, Path(r["path"]), Path(f["path"]), directory / f"pair_{p['id']}", options.fps,
+            relative = "." if len(selected) == 1 else f"{index + 1:03d}_{export_locations.folder_name(Path(f['name']).stem, 50)}"
+            pair_directories.append(relative)
+            manifest = export_pair(info, Path(r["path"]), Path(f["path"]), directory / relative, options.fps,
                 options.profile, run=lambda cmd, log: execute(flag, cmd, log),
                 progress=lambda message: progress(100 * index / len(selected), f"Pair {index + 1}/{len(selected)} · {message}"))
             video(sid, p["fpv"])
@@ -587,33 +607,31 @@ def export(sid: str, options: ExportOptions):
         if flag.is_set():
             raise RuntimeError("Cancelled")
         result = {"id": eid, "session": sid, "session_name": s["name"], "created": time.time(), "pairs": len(manifests),
-                  "profile": options.profile, "fps": options.fps if options.fps is not None else "original", "directory": str(directory)}
-        (directory / "export.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+                  "profile": options.profile, "fps": options.fps if options.fps is not None else "original", "directory": str(directory),
+                  "pair_directories": pair_directories}
+        try:
+            export_locations.save(result)
+        except (OSError, store.SessionSaveError) as exc:
+            raise RuntimeError(f"Clips were written to {directory}, but export history could not be saved. {exc}") from exc
         store.update(sid, lambda doc: doc["exports"].append(result))
     return task(sid, "Exporting aligned clips", run)
 
 
 @app.get("/api/exports")
 def exports():
-    records = []
-    for path in (store.ROOT / "exports").glob("*/*/export.json"):
-        try:
-            records.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            continue
-    return sorted(records, key=lambda r: r["created"], reverse=True)
+    return export_locations.records()
 
 
 @app.get("/api/exports/{sid}/{eid}/download")
 def download(sid: str, eid: str):
     try:
-        directory = store.ROOT / "exports" / store.identifier(sid) / store.identifier(eid)
-    except ValueError:
-        raise HTTPException(404, "Export not found") from None
-    if not (directory / "export.json").is_file():
-        raise HTTPException(404, "Export not complete or not found")
-    return StreamingResponse(stream_archive(directory), media_type="application/zip",
-                             headers={"Content-Disposition": f'attachment; filename="aligned_pairs_{eid[:8]}.zip"'})
+        result, directory = export_locations.load(sid, eid)
+    except (OSError, ValueError, KeyError, TypeError):
+        raise HTTPException(404, "Export folder is unavailable or no longer contains this export. Reconnect its drive/share.") from None
+    archive_name = quote(directory.name + ".zip", safe="")
+    disposition = f"attachment; filename=\"aligned_pairs_{eid[:8]}.zip\"; filename*=UTF-8''{archive_name}"
+    return StreamingResponse(stream_archive(directory, result.get("pair_directories")), media_type="application/zip",
+                             headers={"Content-Disposition": disposition})
 
 
 @app.middleware("http")

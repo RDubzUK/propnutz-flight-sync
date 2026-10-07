@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an export destination folder picker and typed paths, remembering the choice per session. Write single pairs directly into readable session/time folders and batches into numbered FPV-name subfolders; avoid overwriting earlier exports.
+- Show full output paths, maintain an export index outside session data, and retain ZIP downloads/session-deletion behavior for custom destinations and older GUID-folder exports. Exclude registered outputs from recursive source rescans and remove successful encoding logs from completed clip folders.
 - Place the audio display toggle and both saved audio fingerprint energy charts above Modified-date evidence in the pair preview.
 - Show modified-date suggestions as an explicit evidence source in Pair Review and the single-FPV shortlist, alongside audio evidence. Include the predicted sync offset, agreement difference, tolerance, independent confirmed-flight count and expandable supporting pair filenames.
 - Add a modified-date evidence panel beneath the selected pair's synchronized preview. Distinguish a date-based suggestion from independent agreement with an audio/manual alignment, and identify confirmed pairs as clock anchors rather than using them as evidence for themselves.

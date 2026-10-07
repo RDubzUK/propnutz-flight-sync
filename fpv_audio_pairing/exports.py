@@ -204,6 +204,10 @@ def export_pair(
             progress(f"Checking {kind} cut timing · {index + 1}/2")
         output_timing[kind] = _output_info(destination, duration, source_fps,
                                           frame_count=frame_count, copy=profile == "copy", run=run)
+        try:
+            (directory / f"{kind}.log").unlink(missing_ok=True)
+        except OSError:
+            pass  # An open log handle must not invalidate a completed clip.
         outputs.append(name)
     manifest = {
         **info,
@@ -236,7 +240,7 @@ def archive_pairs(directory: Path, manifests: list[tuple[Path, dict]]) -> Path:
     return archive
 
 
-def stream_archive(directory: Path):
+def stream_archive(directory: Path, pair_directories=None):
     """ZIP a completed export directly to the client with bounded buffering.
 
     Multi-gigabyte exports require one copy of each generated MP4 on disk.
@@ -271,12 +275,21 @@ def stream_archive(directory: Path):
 
     def produce():
         try:
-            pair_dirs = sorted(directory.glob("pair_*"))
+            if pair_directories is None:
+                pair_dirs = sorted(directory.glob("pair_*"))
+            else:
+                pair_dirs = []
+                for relative in pair_directories:
+                    if relative != "." and (Path(relative).name != relative or relative in {"", ".."}):
+                        raise ValueError("Invalid exported pair folder")
+                    pair_dirs.append(directory / relative)
             with zipfile.ZipFile(Writer(), "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
                 for pair_dir in pair_dirs:
-                    for path in sorted(pair_dir.iterdir()):
-                        if path.suffix not in {".mp4", ".mov", ".json"}:
-                            continue
+                    manifest = json.loads((pair_dir / "alignment.json").read_text(encoding="utf-8"))
+                    for filename in (manifest["radio_export"], manifest["fpv_export"], "alignment.json"):
+                        if Path(filename).name != filename or filename in {"", ".", ".."}:
+                            raise ValueError("Invalid exported clip filename")
+                        path = pair_dir / filename
                         name = path.name if len(pair_dirs) == 1 else str(path.relative_to(directory))
                         info = zipfile.ZipInfo.from_file(path, arcname=name)
                         with archive.open(info, "w", force_zip64=True) as target, path.open("rb") as source:

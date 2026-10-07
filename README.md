@@ -76,10 +76,13 @@ Default app storage:
 data/sessions/<session-id>/session.json
 data/sessions/<session-id>/audio/          # persisted fingerprints
 data/sessions/<session-id>/previews/       # disposable browser fragments
-data/exports/<session-id>/<export-id>/     # aligned originals and manifest
+data/exports/<session>_aligned_<time>/     # default output with readable names
+data/export-index/<session-id>/           # export-location metadata only
 ```
 
-**Deleting a session removes only its session document, fingerprints and previews. Source videos and completed exports remain.** Saved exports can be downloaded even after their session is deleted. The ZIP download streams without writing a second copy of the export archive. Failed or cancelled exports can leave partial files under `data/exports`; these are not offered as completed downloads.
+**Output folder → Browse…** selects a destination on the app host, including mounted shares. Typed new folders are created when exporting, and the destination is remembered for the session. Each export uses a readable session/time folder; single-pair clips sit directly inside it, while batches use numbered FPV-name subfolders. Saved exports show their full location. Remote users can save through **Download ZIP** on their viewing PC. Older GUID-folder exports remain compatible.
+
+**Deleting a session removes only its session document, fingerprints and previews. Source videos, export-location metadata and completed exports remain.** Saved exports can be downloaded even after their session is deleted, provided the output drive/share is available at the saved path. The ZIP download streams without writing a second copy of the export archive. Failed or cancelled exports can leave partial files at the chosen destination; these are not offered as completed downloads. Recursive source rescans exclude registered export folders.
 
 Set `FPV_AUDIO_DATA_DIR` to use a different dedicated storage location. Keep it separate from the original app's data. Processing runs in a bounded background queue; tasks show progress, elapsed time and an estimate once work has started. Cancellation is immediate for exports and occurs between sections for audio decoding.
 

@@ -27,6 +27,7 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 - Preview read-ahead, refill/resume control, per-player buffering indicators and StickCam audio by default.
 - Detect optional GPU preview decoding on each app host (CUDA, Linux VAAPI, Windows Direct3D 11, macOS VideoToolbox), with GPU resizing where supported, cached-chunk reuse, CPU fallback and a CPU-only override.
 - Exports remain available after session deletion.
+- Select/remember export destinations on the app host, with readable session/time and clip folders, full saved paths, preserved legacy downloads and an independent location index. Exclude generated outputs from recursive source scanning.
 
 ## Deliberate exclusions
 

@@ -97,6 +97,10 @@ Several FPV files can relate to one StickCam recording, including split DJI/O4 r
 
 In **Aligned exports**, choose the current confirmed pair or all confirmed pairs. **Fast trim** and **Original frame rates** are the defaults:
 
+Use **Output folder → Browse…** to choose where the clips are written, including a mounted network share. You can also type a new folder path; missing folders are created when exporting. The destination is on the **machine running Flight Sync**. It is remembered for the session after an export starts. When using another PC over the LAN, **Download ZIP** saves through that PC's browser instead.
+
+Each export creates a new readable folder, for example `Node Court_aligned_2026-10-07_21-15-00`. A single pair's FPV clip, StickCam clip and `alignment.json` sit directly inside it. Multiple pairs get numbered subfolders named after their FPV clips. Existing folders/files are not overwritten. Leave Output folder blank to use readable folders under the app's `data/exports/`. Completed rows show the full **Saved to** path, which you can select/copy. Session-data folders cannot be chosen as destinations because session deletion removes them.
+
 - **Fast trim · no re-encoding** copies video/audio into MP4, retaining original codecs, resolution and frame cadence. It is generally limited by storage speed. Cuts between keyframes retain decoding preroll and use MP4 edit lists to hide it. An editor must honor those edit lists; if it exposes extra frames or the cut fails timing checks, choose Accurate trim. The app does not silently fall back to a slow re-encode.
 - **Accurate trim · H.264 MP4** decodes and re-encodes the requested interval for a broadly compatible cut.
 - **Accurate trim · DNxHR HQX MOV** re-encodes to larger editing files.
@@ -109,11 +113,11 @@ Outputs use the same requested shared interval and a common zero-time origin. Na
 
 Download the ZIP and place both clips at the same timeline position in DaVinci Resolve or another editor. Verify a fast cut in your editor because edit-list support is essential. Output timing checks do not correct an inaccurate match or guarantee every editor's behavior. See [FFmpeg seeking](https://ffmpeg.org/ffmpeg.html#Main-options) and [MP4 edit-list options](https://ffmpeg.org/ffmpeg-formats.html#mov_002c-mp4_002c-ismv).
 
-The ZIP streams directly during download. Outputs are retained on disk, and **Saved exports** lists completed downloads even if the session has been deleted.
+The ZIP streams directly during download. Outputs are retained at the chosen destination, and **Saved exports** lists completed downloads even if the session has been deleted. A small export index stays in app data; moving the output folder or disconnecting its drive/share makes the download unavailable until that path is restored. Older exports in GUID folders retain their download links. Recursive source rescans skip registered export folders, including incomplete outputs, to avoid importing generated clips as source recordings.
 
 ## Session data and backup
 
-The current local version stores `session.json`, audio caches and preview fragments under `data/sessions/` on the app server, with aligned outputs under `data/exports/`. Originals remain in their source folders. Stop processing and back up the data folder plus original recordings to preserve work.
+The current local version stores `session.json`, audio caches and preview fragments under `data/sessions/` on the app server. Export locations are indexed under `data/export-index/`; aligned outputs are written to your chosen folder, or readable folders under `data/exports/` by default. Originals remain in their source folders. Stop processing and back up app data, chosen export folders and original recordings to preserve work.
 
 **Delete session data** removes that session's JSON and caches, keeping original recordings and completed exports. Deletion cannot be reversed in the app; restore a local backup to recover a session. If a job is running, cancel it and wait until it stops before deletion.
 

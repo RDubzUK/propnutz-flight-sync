@@ -88,6 +88,7 @@ async function chooseSession(id) {
   clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; rememberSession(id);
   counterpartId=null; counterpartKey='';
   doc=await api(`/api/sessions/${id}`); $('rename-name').value=doc.name;
+  $('export-folder').value=doc.export_destination || '';
   $('modified-kind').value=doc.modified_kind || 'end'; $('filenames').checked=doc.use_filenames !== false;
   $('counterpart-boundary').value=String(doc.counterpart_search?.boundary || 30);
   if (!$('counterpart-boundary').value) $('counterpart-boundary').value='30';
@@ -217,7 +218,7 @@ function render() {
   renderExports(doc.exports||[], 'exports');
 }
 function renderExports(records, target) {
-  $(target).innerHTML=records.length?records.map(e=>`<div class="export-row"><span><strong>${escape(e.session_name)}</strong><br><small>${e.pairs} pair${e.pairs!==1?'s':''} · ${escape(e.profile==='copy'?'Fast trim':e.profile.toUpperCase())} · ${escape(e.fps==='original'?'Original frame rates':`${e.fps}fps`)} · ${new Date(e.created*1000).toLocaleString()}</small></span><a href="/api/exports/${e.session}/${e.id}/download">Download ZIP</a></div>`).join(''):'<p class="hint">No completed exports yet.</p>';
+  $(target).innerHTML=records.length?records.map(e=>`<div class="export-row"><span><strong>${escape(e.session_name)}</strong><br><small>${e.pairs} pair${e.pairs!==1?'s':''} · ${escape(e.profile==='copy'?'Fast trim':e.profile.toUpperCase())} · ${escape(e.fps==='original'?'Original frame rates':`${e.fps}fps`)} · ${new Date(e.created*1000).toLocaleString()}</small><small class="export-path">Saved to: ${escape(e.directory)}</small></span><a href="/api/exports/${e.session}/${e.id}/download">Download ZIP</a></div>`).join(''):'<p class="hint">No completed exports yet.</p>';
 }
 function updateExportOptions() {
   const copy=$('export-profile').value==='copy';
@@ -364,9 +365,15 @@ async function browse(path) {
     $('folder-use').disabled=false;
   }catch(e){$('folder-error').textContent=e.message;$('folder-use').disabled=true;}
 }
-document.querySelectorAll('[data-browse]').forEach(b=>b.onclick=()=>{browsing=b.dataset.browse;$('folder-title').textContent=`Choose ${browsing==='fpv'?'FPV video':'StickCam video'} source folder`;$('folder-dialog').showModal();browse($(`${browsing}-folder`).value||(browsing==='stick'?$('fpv-folder').value:''));});
+document.querySelectorAll('[data-browse]').forEach(b=>b.onclick=()=>{
+  browsing=b.dataset.browse;
+  $('folder-title').textContent=browsing==='export'?'Choose aligned export destination':`Choose ${browsing==='fpv'?'FPV video':'StickCam video'} source folder`;
+  $('folder-hint').textContent=browsing==='export'?'Choose a folder on the machine running Flight Sync, including mounted shares. Exports get their own readable folder. To save on the PC viewing this app, use Download ZIP.':'For SMB, mount the share on the server and select it under /mnt, /media or the desktop network mounts. Windows servers can browse a mapped drive or UNC path.';
+  $('folder-dialog').showModal();
+  browse($(`${browsing}-folder`).value||(browsing==='stick'?$('fpv-folder').value:browsing==='export'?doc?.folders?.fpv || '':''));
+});
 action('folder-close',()=>$('folder-dialog').close());action('folder-use',()=>{$(`${browsing}-folder`).value=$('browse-path').value;$('folder-dialog').close();});action('browse-go',()=>browse($('browse-path').value));$('browse-path').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();browse(e.target.value);}};
-action('new-session',()=>{clearReview();sid=null;doc=null;rememberSession(null);$('workspace').hidden=true;$('session-controls').hidden=true;$('sources-section').hidden=false;$('sources-section').open=true;$('session-name').focus();sessionKey='';refreshSessions();});
+action('new-session',()=>{clearReview();sid=null;doc=null;rememberSession(null);$('export-folder').value='';$('workspace').hidden=true;$('session-controls').hidden=true;$('sources-section').hidden=false;$('sources-section').open=true;$('session-name').focus();sessionKey='';refreshSessions();});
 $('create-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{const s=await post('/api/sessions',{name:$('session-name').value,fpv:$('fpv-folder').value,stick:$('stick-folder').value,recursive:$('recursive').checked});await chooseSession(s.id);}catch(e){notice(e.message,true);}finally{b.disabled=false;}};
 action('rename',async()=>{doc=await api(`/api/sessions/${sid}`,{method:'PATCH',body:JSON.stringify({name:$('rename-name').value})});await refreshSessions();});
 action('rescan',async()=>{await post(`/api/sessions/${sid}/scan`);await poll();});
@@ -391,7 +398,7 @@ action('review-match',()=>{const first=matchedAudioRanges(currentPair())[0];if(f
 action('apply-offset',()=>alignment(false));action('confirm',()=>alignment(true));action('unconfirm',()=>alignment(false));
 document.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=()=>{$('offset').value=(Number($('offset').value)+Number(b.dataset.nudge)).toFixed(3);alignment(false).catch(e=>notice(e.message,true));});
 $('show-audio').onchange=e=>{$('audio-charts').hidden=!e.target.checked;if(e.target.checked)drawCharts();};window.addEventListener('resize',()=>drawCharts());
-action('export',async()=>{const all=$('export-scope').value==='all',p=currentPair();const pairs=all?doc.pairs.filter(p=>p.confirmed&&!p.stale).map(p=>p.id):(p?.confirmed&&!p.stale?[p.id]:[]);if(!pairs.length)throw new Error('Confirm the current pair, or select all confirmed pairs.');await post(`/api/sessions/${sid}/export`,{pairs,fps:$('export-fps').value==='original'?null:Number($('export-fps').value),profile:$('export-profile').value,trim_start:Number($('trim-start').value),trim_end:$('trim-end').value===''?null:Number($('trim-end').value)});await poll();});
+action('export',async()=>{const all=$('export-scope').value==='all',p=currentPair();const pairs=all?doc.pairs.filter(p=>p.confirmed&&!p.stale).map(p=>p.id):(p?.confirmed&&!p.stale?[p.id]:[]);if(!pairs.length)throw new Error('Confirm the current pair, or select all confirmed pairs.');await post(`/api/sessions/${sid}/export`,{pairs,fps:$('export-fps').value==='original'?null:Number($('export-fps').value),profile:$('export-profile').value,trim_start:Number($('trim-start').value),trim_end:$('trim-end').value===''?null:Number($('trim-end').value),destination:$('export-folder').value.trim()});await poll();});
 $('export-profile').onchange=updateExportOptions;$('export-fps').onchange=updateExportOptions;
 $('export-profile').value='copy';$('export-fps').value='original';updateExportOptions();
 $('listen').value='stick';
