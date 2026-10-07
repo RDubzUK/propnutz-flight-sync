@@ -31,8 +31,14 @@ STATIC = Path(__file__).parent / "static"
 WORKERS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audio-pairing")
 PREVIEWS = threading.Semaphore(2)
 FLAGS = {}
+TASK_SAVE_ERRORS = {}
 ACTIVE = threading.RLock()
 EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".mts", ".m2ts", ".webm"}
+
+
+@app.exception_handler(store.SessionSaveError)
+async def session_save_error(request: Request, exc: store.SessionSaveError):
+    return JSONResponse({"detail": str(exc)}, status_code=503)
 
 
 def clean(value):
@@ -47,9 +53,19 @@ def clean(value):
     return value
 
 
+def task_save_status(doc):
+    # A stopped worker must not appear to run forever if the disk also refused
+    # its failure-status save. This overlay is explicitly marked as unsaved.
+    with ACTIVE:
+        failed = TASK_SAVE_ERRORS.get(doc["id"])
+    if failed:
+        doc["job"] = {**doc.get("job", {}), **failed}
+    return doc
+
+
 def session(sid):
     try:
-        return store.read(sid)
+        return task_save_status(store.read(sid))
     except (FileNotFoundError, ValueError):
         raise HTTPException(404, "Session not found") from None
 
@@ -69,18 +85,21 @@ def video(sid, vid):
 
 
 def idle(sid):
-    if session(sid).get("job", {}).get("status") in {"queued", "running"}:
-        raise HTTPException(409, "A task is already running for this session")
+    with ACTIVE:
+        if sid in FLAGS or session(sid).get("job", {}).get("status") in {"queued", "running"}:
+            raise HTTPException(409, "A task is already running for this session")
 
 
 def task(sid, title, work):
     with ACTIVE:
         idle(sid)
-        flag = FLAGS[sid] = threading.Event()
+        flag = threading.Event()
         start = time.time()
         job = {"status": "queued", "title": title, "message": "Waiting for the processing queue", "percent": 0,
                "started": start, "elapsed": 0, "eta": None}
         store.update(sid, lambda s: s.update(job=job))
+        FLAGS[sid] = flag
+        TASK_SAVE_ERRORS.pop(sid, None)
 
     def update(percent, message):
         if flag.is_set():
@@ -101,6 +120,13 @@ def task(sid, title, work):
                               message=str(exc), eta=None, elapsed=round(time.time() - start, 1)))
             except FileNotFoundError:
                 pass
+            except store.SessionSaveError:
+                with ACTIVE:
+                    TASK_SAVE_ERRORS[sid] = {
+                        "status": "failed", "eta": None, "elapsed": round(time.time() - start, 1),
+                        "message": f"Task stopped; its failure status could not be saved. {exc}",
+                        "persistence_failed": True,
+                    }
         finally:
             with ACTIVE:
                 FLAGS.pop(sid, None)
@@ -313,7 +339,7 @@ def browse(path: str = "", hidden: bool = False):
 @app.get("/api/sessions")
 def list_sessions():
     return [{k: s.get(k) for k in ("id", "name", "created", "folders", "job")} | {"videos": len(s["videos"]),
-            "confirmed": sum(p.get("confirmed", False) for p in s["pairs"])} for s in store.sessions()]
+            "confirmed": sum(p.get("confirmed", False) for p in s["pairs"])} for s in map(task_save_status, store.sessions())]
 
 
 @app.post("/api/sessions")
@@ -366,9 +392,10 @@ def clock_settings(sid: str, options: ClockOptions):
 
 @app.delete("/api/sessions/{sid}")
 def delete(sid: str):
-    with ACTIVE:
+    with ACTIVE, store.LOCK:
         idle(sid)
         shutil.rmtree(store.directory(sid))
+        TASK_SAVE_ERRORS.pop(sid, None)
     return {"deleted": True, "exports_preserved": str(store.ROOT / "exports" / sid)}
 
 

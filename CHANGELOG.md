@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.2 — 7 October 2026
+
+- Serialize session-list reads with background JSON saves, fixing an internal read/write race that can prevent replacing an open file on Windows.
+- Retry atomic replacement for Windows errors 5, 32 and 33, with a bounded total delay of two seconds.
+- Preserve the previous saved JSON and retain a complete pending JSON when replacement fails. Report the recovery path and writable-folder guidance instead of losing the pending save.
+- Return readable session-save errors to the frontend and keep temporary-file cleanup errors from masking the original failure.
+- Show a stopped task as failed even when its failure status cannot be saved; mark that status as unsaved and clear it after a successful restart of the task.
+- Register a queued worker only after its initial job status has been saved.
+- Serialize session deletion with the same storage lock.
+
+Windows open handles can restrict rename/delete operations depending on their sharing flags. [Microsoft file-sharing documentation](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew). Code review identified the internal race; the exact cause of the reported access denial and the fix have not been verified on the user's Windows machine.
+
 ## v0.1.1 — 7 October 2026
 
 - Serve JavaScript modules and CSS with explicit MIME types, independent of Windows registry file associations. This addresses a frontend startup failure that leaves Browse and Prepare session unresponsive.

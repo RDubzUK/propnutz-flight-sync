@@ -129,6 +129,7 @@ Restart using the command or service above. Repository tags preserve the pre-inv
 | `uv` not found | Reopen the terminal after installation; follow uv's PATH instructions. |
 | uv says it could not hardlink files and copied them instead | Installation still succeeds. This is common when the cache and project are on different drives; it does not stop the frontend working. |
 | Browse and Prepare session do nothing, with no `/api/` requests in the server log | Update to v0.1.1 or later, restart the app and press Ctrl+F5. Windows file associations can cause JavaScript to be sent with the wrong MIME type; the app now sets it explicitly. Frontend loading failures also appear in a startup banner. |
+| `[WinError 5] Access is denied` replacing a temporary file with `session.json` | Update to v0.1.2 or later and restart. Session-list reads now share the save lock, and transient Windows rename locks are retried. For a persistent denial, close other app instances/editors and check write permissions or the file's read-only attribute; use `FPV_AUDIO_DATA_DIR` for a writable data location. |
 | Missing FFmpeg or ffprobe | Put both binaries on PATH and restart the terminal/service. |
 | Port already in use | Stop the other Flight Sync instance or choose another `--port`. |
 | Remote browser cannot connect | Check the server IP, `--host 0.0.0.0`, service status and private-network firewall. |
@@ -160,3 +161,16 @@ For a frontend that still cannot start, the startup banner provides details. Fro
 ```
 
 It should be `text/javascript; charset=utf-8`. Once the frontend starts, the server log should show `GET /static/preview-player.js` and `GET /api/system`, followed by session/export API requests.
+
+### Recovering a failed session save
+
+From v0.1.2, a failed atomic replacement preserves the existing `session.json` and retains the complete new JSON at the temporary path shown in the error. Stop the app before recovery. Back up the session folder, resolve the file lock/write permission issue, then copy the reported pending JSON over that session's `session.json` if you want to recover that save. There can be several pending files; use the one reported for the save you need, rather than blindly promoting all temporary files. Restart afterwards. Never delete your data folder as a workaround.
+
+For a new writable location on Windows, set the existing data-directory option before launching:
+
+```powershell
+$env:FPV_AUDIO_DATA_DIR = Join-Path $env:LOCALAPPDATA 'PropNutzFlightSyncData'
+uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
+```
+
+This selects that folder's sessions; it does not migrate existing sessions automatically. To preserve existing work, stop the app and copy the old data folder's contents there first, as described above, and ensure the copied JSON files are writable. Set the same environment value on subsequent launches.
