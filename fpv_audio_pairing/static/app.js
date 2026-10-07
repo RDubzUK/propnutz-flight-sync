@@ -7,6 +7,8 @@ const duration = value => value == null ? 'Scanning…' : `${Math.floor(value/60
 let sid = localStorage.getItem('audio-pairing-session'), doc, pairId, selected = new Set(), renderKey = '', sessionKey = '', exportKey = '';
 let token = 0, playing = false, loading = false, traces = {}, browsing = '', pollBusy = false;
 const fpv = $('fpv-player'), stick = $('stick-player');
+const playRequests = new Map();
+let playIntent = 0;
 let noticeTimer;
 function notice(text, error = false) {
   clearTimeout(noticeTimer); $('notice').textContent = text; $('notice').className = `visible ${error ? 'error' : ''}`;
@@ -21,7 +23,34 @@ const post = (path, body = {}) => api(path, {method:'POST', body:JSON.stringify(
 function action(id, callback) { $(id).addEventListener('click', () => Promise.resolve().then(callback).catch(e => notice(e.message,true))); }
 function currentPair() { return doc?.pairs.find(p => p.id === pairId); }
 function record(id) { return doc?.videos.find(r => r.id === id); }
-function pause() { playing = false; fpv.pause(); stick.pause(); }
+function holdPlayback() {
+  // Buffering and drift corrections pause the elements without cancelling
+  // the user's request to play the pair once both feeds are ready again.
+  for (const video of [fpv, stick]) {
+    const request = playRequests.get(video);
+    if (request) request.cancelled = true;
+    video.pause();
+  }
+}
+function pause() { playing = false; playIntent++; holdPlayback(); }
+function requestPlayback(video) {
+  if (!playing || loading || !video.paused || playRequests.has(video)) return;
+  const request = {generation: token, intent: playIntent, cancelled: false};
+  playRequests.set(video, request);
+  function failed(error) {
+    // A stopped/previous pair must never stop the newly selected pair.
+    if (request.generation !== token || request.intent !== playIntent || !playing) return;
+    // pause() rejects a pending play() with AbortError. Only disregard it
+    // when our synchronization controls deliberately interrupted this request.
+    if (request.cancelled && error.name === 'AbortError') return;
+    pause(); notice(error.message, true);
+  }
+  function finished() {
+    if (playRequests.get(video) === request) playRequests.delete(video);
+  }
+  try { Promise.resolve(video.play()).catch(failed).finally(finished); }
+  catch (error) { failed(error); finished(); }
+}
 function clearReview() { token++; pause(); releaseAllPreviews(); for (const v of [fpv,stick]) { v.removeAttribute('src'); v.load(); } pairId = null; traces={}; $('review').hidden=true; }
 async function chooseSession(id) {
   clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; localStorage.setItem('audio-pairing-session',id);
@@ -122,12 +151,19 @@ async function openPair(id, {scrollToPreview=false} = {}) {
 }
 function seek(at) {
   const p=currentPair();if(!p)return;
+  holdPlayback();
   at=Math.max(0,Math.min(Number(at)||0,p.overlap_duration-.04));
   if(fpv.readyState>=1)fpv.currentTime=p.fpv_start+at;if(stick.readyState>=1)stick.currentTime=p.radio_start+at;
   $('seek').value=at;drawCharts(at);
 }
 function audioChoice() {fpv.muted=$('listen').value!=='fpv';stick.muted=$('listen').value!=='stick';}
-async function play() {if(loading||!currentPair())return;playing=true;audioChoice();if(Number($('seek').value)>=currentPair().overlap_duration-.15)seek(0);try{await Promise.all([fpv.play(),stick.play()]);}catch(e){pause();notice(e.message,true);}}
+function play() {
+  if (loading || playing || !currentPair()) return;
+  audioChoice();
+  if (Number($('seek').value) >= currentPair().overlap_duration - .15) seek(0);
+  playing = true; playIntent++;
+  requestPlayback(fpv); requestPlayback(stick);
+}
 function draw(canvas,trace,p,isStick,at) {
   const width=Math.max(400,canvas.clientWidth),height=110;canvas.width=width;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);
   if(!p)return; const start=isStick?p.radio_start:p.fpv_start, span=p.overlap_duration;
@@ -143,12 +179,17 @@ setInterval(()=>{
   let at=Math.max(0,fpv.currentTime-p.fpv_start);
   if(playing){
     if(at>=p.overlap_duration-.05){pause();at=p.overlap_duration;}
-    else if(fpv.readyState<3||stick.readyState<3||fpv.seeking||stick.seeking){fpv.pause();stick.pause();}
-    else{if(Math.abs(stick.currentTime-(p.radio_start+at))>.12){stick.pause();stick.currentTime=p.radio_start+at;}else{if(fpv.paused)fpv.play().catch(e=>{pause();notice(e.message,true);});if(stick.paused)stick.play().catch(e=>{pause();notice(e.message,true);});}}
+    else if(fpv.readyState<3||stick.readyState<3||fpv.seeking||stick.seeking){holdPlayback();}
+    else if(Math.abs(stick.currentTime-(p.radio_start+at))>.12){
+      // Hold the FPV playhead too, so StickCam can catch up to a stationary
+      // target rather than repeatedly seeking after a moving video.
+      holdPlayback(); stick.currentTime=p.radio_start+at;
+    }else{requestPlayback(fpv);requestPlayback(stick);}
   }
   $('seek').value=at;$('common-time').textContent=`Common ${fmt(at)} / ${fmt(p.overlap_duration)}`;
   $('fpv-time').textContent=`Source ${fmt(fpv.currentTime)}`;$('stick-time').textContent=`Source ${fmt(stick.currentTime)}`;drawCharts(at);
 },150);
+window.addEventListener('pagehide', pause);
 async function alignment(confirm=false, offset=Number($('offset').value)) {
   const p=currentPair();if(!p)throw new Error('Open a pair first');pause();
   if(confirm && Math.abs(p.offset-offset)>.00001)throw new Error('Apply the new offset and preview the alignment before confirming it.');
