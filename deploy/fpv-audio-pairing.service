@@ -1,0 +1,14 @@
+[Unit]
+Description=FPV Audio Pairing
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/vscode_projects/fpv-audio-pairing
+ExecStart=%h/vscode_projects/fpv-audio-pairing/.venv/bin/python -m fpv_audio_pairing.web --host 0.0.0.0 --port 8768
+Environment=PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
