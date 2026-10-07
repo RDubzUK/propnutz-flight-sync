@@ -110,10 +110,32 @@ function list(kind) {
 }
 function selectionLabel() { $('selection-count').textContent=`${selected.size} selected`; }
 function modifiedSupport(pair) { return pair.clock_support?.find(s=>s.method==='modified'); }
-function dateSupportLabel(pair) {
+const signedSeconds=value=>Number.isFinite(value)?`${value>=0?'+':''}${value.toFixed(2)}s`:'—';
+function dateEvidenceMarkup(pair, expanded=false) {
   const support=modifiedSupport(pair);
-  if (!support) return '';
-  return support.agrees?`Modified dates agree · ${support.independent_flights} confirmed flight${support.independent_flights!==1?'s':''}${support.tentative?' · tentative':''}`:`Modified-date estimate differs by ${Math.abs(support.alignment_difference).toFixed(2)}s`;
+  const model=doc?.clocks?.find(m=>m.method==='modified');
+  if (pair.stale) return '<div class="pair-evidence"><span class="badge">Modified dates unavailable</span><small>Source recordings changed; rescan first.</small></div>';
+  if (pair.confirmed && model?.anchors.some(a=>a.pair===pair.id)) return '<div class="pair-evidence"><span class="badge confirmed">Modified-date anchor</span><small>This confirmed alignment teaches dates for other recordings.</small></div>';
+  if (!support) return `<div class="pair-evidence"><span class="badge">Modified dates ${model?'unavailable':'not learned'}</span><small>${model?'No usable date evidence for this pair.':'Confirm an aligned pair to learn the date difference.'}</small></div>`;
+  const count=support.independent_flights;
+  const learned=`${count} confirmed flight${count!==1?'s':''}${support.tentative?' · tentative':''}`;
+  let title,kind,explanation;
+  if (support.status==='conflicting') {
+    title='Modified dates conflict';kind='weak';explanation='Confirmed clock differences disagree; date matching is disabled.';
+  } else if (support.status==='repeated_dates') {
+    title='Modified dates unreliable';kind='weak';explanation='Repeated dates within a feed cannot support this match.';
+  } else {
+    const dateSuggestion=pair.method==='timestamp' && pair.clock_method==='modified';
+    title=dateSuggestion?'Modified-date suggestion':support.agrees?'Modified dates agree':'Modified dates disagree';
+    kind=dateSuggestion?'timestamp':support.agrees?'strong':'weak';
+    explanation=`Date estimate ${signedSeconds(support.expected_offset)} · difference ${Math.abs(support.alignment_difference).toFixed(2)}s · tolerance ±${support.tolerance}s.`;
+  }
+  const anchors=(support.anchors || []).map(id=>{
+    const anchor=doc.pairs.find(p=>p.id===id);
+    return anchor?`<li>${escape(record(anchor.fpv)?.name || 'FPV')} + ${escape(record(anchor.stick)?.name || 'StickCam')}<br><small>Confirmed offset ${signedSeconds(anchor.offset)}</small></li>`:'';
+  }).join('');
+  const raw=Number.isFinite(support.modified_difference)?`<p>File modified-date difference: ${signedSeconds(support.modified_difference)}. Dates treated as recording ${support.modified_kind==='start'?'starts':'ends'}; durations and the confirmed sync offset are included.</p>`:'';
+  return `<div class="pair-evidence"><span class="badge ${kind}">${title}</span><small>${escape(learned)}</small><small>${escape(explanation)}</small><details class="evidence-details" ${expanded?'open':''}><summary>Confirmed pairs used (${support.anchors?.length || 0})</summary>${raw}${anchors?`<ul>${anchors}</ul>`:''}<p class="hint">Date evidence suggests a relationship; review the synchronized footage before confirming it.</p></details></div>`;
 }
 function rankedPairs(pairs) {
   const rank=p=>p.confirmed?0:p.confidence==='Strong'?1:p.method==='timestamp'?3:2;
@@ -125,8 +147,8 @@ function renderPairList(target, pairs, {stickOnly=false, empty='No candidate pai
     const fpvName=escape(record(p.fpv)?.name || 'Missing FPV file');
     const stickName=escape(record(p.stick)?.name || 'Missing StickCam file');
     const names=stickOnly?`<strong>${stickName}</strong>`:`<strong>${fpvName}</strong><br>${stickName}`;
-    const dateLabel=dateSupportLabel(p);
-    return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names">${names}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.score!=null?`<br><small>Evidence ${Math.round(p.score*100)}/100</small>`:''}${sections?`<br><small>${sections.correlated_sections}/${sections.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}${dateLabel?`<br><small>${escape(dateLabel)}</small>`:''}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;
+    const dateMarkup=dateEvidenceMarkup(p);
+    return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names">${names}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.evidence && p.score!=null?`<br><small>Audio evidence ${Math.round(p.score*100)}/100</small>`:''}${sections?`<br><small>${sections.correlated_sections}/${sections.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}${dateMarkup}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;
   }).join('')}</tbody></table>`:`<div class="empty">${escape(empty)}</div>`;
   $(target).querySelectorAll('[data-pair]').forEach(button=>button.onclick=()=>openPair(button.dataset.pair,{scrollToPreview:true}).catch(error=>notice(error.message,true)));
 }
@@ -224,6 +246,8 @@ function updateReview() {
   $('review-details').textContent=`${p.confirmed?'Confirmed alignment':p.confidence} · full shared footage ${duration(p.overlap_duration)} · FPV ${fmt(p.fpv_start)}–${fmt(p.fpv_start+p.overlap_duration)} · StickCam ${fmt(p.radio_start)}–${fmt(p.radio_start+p.overlap_duration)}`;
   const matches=matchedAudioRanges(p), matchedSeconds=matches.reduce((sum,w)=>sum+w.end-w.start,0);
   $('review-evidence').textContent=matches.length?`Matching audio evidence: ${matchedSeconds.toFixed(1)}s within ${duration(p.overlap_duration)} of shared footage. The sync offset applies throughout the full shared range.`:'Playback covers the full shared footage at the saved sync offset. No matching audio sections are marked for this alignment.';
+  const dateMarkup=dateEvidenceMarkup(p,true), dateTarget=$('review-date-evidence');
+  if (dateTarget.dataset.evidenceKey!==dateMarkup) {dateTarget.innerHTML=`<h4>Modified-date evidence</h4>${dateMarkup}`;dateTarget.dataset.evidenceKey=dateMarkup;}
   $('review-start').disabled=loading || $('play').disabled;
   $('review-match').disabled=loading || $('play').disabled || !matches.length;
   $('offset').value=p.offset.toFixed(3); $('seek').max=p.overlap_duration;

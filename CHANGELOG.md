@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Show modified-date suggestions as an explicit evidence source in Pair Review and the single-FPV shortlist, alongside audio evidence. Include the predicted sync offset, agreement difference, tolerance, independent confirmed-flight count and expandable supporting pair filenames.
+- Add a modified-date evidence panel beneath the selected pair's synchronized preview. Distinguish a date-based suggestion from independent agreement with an audio/manual alignment, and identify confirmed pairs as clock anchors rather than using them as evidence for themselves.
+- Refresh derived date evidence on session load, including older saved confirmations, without rescanning audio, generating new pairs or changing saved offsets. Show conflicting/repeated dates as unavailable evidence, and hide old audio scores after their alignment evidence has been cleared.
+
 ## v0.3.0 — 7 October 2026
 
 - Add fast MP4 stream-copy trimming without video/audio re-encoding, with explicit edit-list compatibility guidance and output timing checks. Preserve source frame cadence by default; retain accurate H.264/DNxHR trimming and optional fixed-rate conversion.

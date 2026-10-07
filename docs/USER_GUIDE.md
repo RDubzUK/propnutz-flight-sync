@@ -85,7 +85,11 @@ Once playback looks aligned, choose **Confirm this pair & suggest others**. Ever
 - Conflicting confirmed clocks or repeated/reset timestamps are reported and excluded where appropriate.
 - A timestamp candidate is a **suggestion**, not an audio-confirmed match. Review it too.
 
-The clock panel lists the confirmed pairs used and their raw date differences. Candidate rows show **Modified dates agree** when their sync offset is within two seconds of the learned clock prediction, including candidates already found from audio. Within the same evidence tier, date-supported candidates appear first. If the dates predict a different offset, that difference is shown without overwriting the audio/manual alignment or score. One confirmed flight remains tentative; multiple FPV parts of the same StickCam flight do not count as independent flights. Matching date signals do not automatically confirm a pair.
+The clock panel lists the confirmed pairs used and their raw date differences. **Evidence** in Pair Review and the counterpart shortlist shows modified dates separately from audio. Date-based proposals are labelled **Modified-date suggestion**. An audio/manual candidate shows **Modified dates agree** when its sync offset is within two seconds of the learned clock prediction, or **Modified dates disagree** otherwise. Each row includes the predicted offset, difference, tolerance and number of independent confirmed flights. Expand **Confirmed pairs used** to see the supporting filenames and confirmed offsets.
+
+The same information appears in a **Modified-date evidence** panel beneath the selected pair's preview. A confirmed pair is shown as a clock anchor; it is not counted as evidence for its own alignment. Conflicting clock anchors and repeated dates are explicitly identified as unusable evidence. Existing saved confirmations receive current date evidence when the session loads, without another audio search, rescan or offset change.
+
+Within the same evidence tier, date-supported candidates appear first. If dates predict a different offset, that difference is shown without overwriting the audio/manual alignment or score. One confirmed flight remains tentative; multiple FPV parts of the same StickCam flight do not count as independent flights. Matching date signals do not automatically confirm a pair.
 
 Several FPV files can relate to one StickCam recording, including split DJI/O4 recordings. Each part gets its own overlapping interval and can be confirmed/exported separately. Different video lengths do not count against a content match.
 

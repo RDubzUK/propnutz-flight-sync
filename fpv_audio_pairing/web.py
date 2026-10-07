@@ -370,7 +370,9 @@ def create(options: Sources):
 
 @app.get("/api/sessions/{sid}")
 def get_session(sid: str):
-    return session(sid)
+    # Old confirmations acquire current date evidence on load. This is a cheap
+    # derived annotation, not a new match search or a write to the session file.
+    return matching.refresh_clock_evidence(session(sid))
 
 
 class Rename(BaseModel):

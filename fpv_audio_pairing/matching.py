@@ -81,25 +81,78 @@ def clock_model(session, method):
             "tentative": len({a["stick"] for a in anchors}) < 2}
 
 
-def suggest(session):
-    """Allow many FPV parts per StickCam; never treat duration as identity proof."""
-    refresh_pair_ranges(session)
-    models = [m for method in ["modified", *( ["filename"] if session.get("use_filenames", True) else [])]
-              if (m := clock_model(session, method))]
-    session["clocks"] = models
-    session["clock_warnings"] = []
-    # Rebuild only clock proposals. Preserve audio evidence and user-confirmed pairs.
-    retained = [p for p in session["pairs"] if p.get("confirmed") or p.get("method") != "timestamp"]
-    known = {p["id"] for p in retained}
+def _clock_models(session):
+    return [m for method in ["modified", *(["filename"] if session.get("use_filenames", True) else [])]
+            if (m := clock_model(session, method))]
+
+
+def _clock_data(session):
     records = [r for r in session["videos"] if r.get("metadata") and not r.get("stale")]
     counts = {m: Counter((r["kind"], clock_start(r, m, session.get("modified_kind", "end"))) for r in records)
               for m in ("modified", "filename")}
     # Duplicates within a feed can indicate copied/reset dates. A date shared
     # by one FPV and one StickCam recording is not itself a duplicate clock.
     raw_counts = Counter((r["kind"], r["mtime"]) for r in records)
-    def repeated_dates(f, s, method, fc, sc):
-        return (max(raw_counts[(f["kind"], f["mtime"])], raw_counts[(s["kind"], s["mtime"])]) > 1
-                if method == "modified" else max(counts[method][(f["kind"], fc)], counts[method][(s["kind"], sc)]) > 1)
+    return records, counts, raw_counts
+
+
+def _repeated_dates(f, s, method, fc, sc, counts, raw_counts):
+    return (max(raw_counts[(f["kind"], f["mtime"])], raw_counts[(s["kind"], s["mtime"])]) > 1
+            if method == "modified" else max(counts[method][(f["kind"], fc)], counts[method][(s["kind"], sc)]) > 1)
+
+
+def refresh_clock_evidence(session, models=None):
+    """Refresh candidate evidence, including old sessions, without audio work.
+
+    This annotates existing pairs only. Reads neither generate proposals nor
+    move any saved alignment, and confirmed anchors never corroborate themselves.
+    """
+    models = _clock_models(session) if models is None else models
+    session["clocks"] = models
+    records, counts, raw_counts = _clock_data(session)
+    by_id = {r["id"]: r for r in records}
+    for pair in session["pairs"]:
+        pair.pop("clock_support", None)
+        if pair.get("confirmed") or pair.get("stale"):
+            continue
+        f, s = by_id.get(pair["fpv"]), by_id.get(pair["stick"])
+        if not f or not s:
+            continue
+        support = []
+        for model in models:
+            method = model["method"]
+            fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
+            if fc is None or sc is None:
+                continue
+            details = {"method": method, "tolerance": CLOCK_TOLERANCE,
+                       "independent_flights": model["independent_flights"], "tentative": model["tentative"],
+                       "anchors": [a["pair"] for a in model["anchors"]], "clock_delta": model["delta"],
+                       "modified_difference": s["mtime"] - f["mtime"],
+                       "modified_kind": session.get("modified_kind", "end")}
+            if not model["consistent"]:
+                support.append(details | {"status": "conflicting", "agrees": False})
+                continue
+            if _repeated_dates(f, s, method, fc, sc, counts, raw_counts):
+                support.append(details | {"status": "repeated_dates", "agrees": False})
+                continue
+            expected = model["delta"] + fc - sc
+            difference = pair["offset"] - expected
+            support.append(details | {"status": "available", "expected_offset": expected,
+                                      "alignment_difference": difference, "agrees": abs(difference) <= CLOCK_TOLERANCE})
+        if support:
+            pair["clock_support"] = support
+    return session
+
+
+def suggest(session):
+    """Allow many FPV parts per StickCam; never treat duration as identity proof."""
+    refresh_pair_ranges(session)
+    models = _clock_models(session)
+    session["clock_warnings"] = []
+    # Rebuild only clock proposals. Preserve audio evidence and user-confirmed pairs.
+    retained = [p for p in session["pairs"] if p.get("confirmed") or p.get("method") != "timestamp"]
+    known = {p["id"] for p in retained}
+    records, counts, raw_counts = _clock_data(session)
     for model in models:
         if not model["consistent"]:
             session["clock_warnings"].append(f"Confirmed {model['method']} clock offsets disagree; suggestions from this clock are disabled.")
@@ -114,7 +167,7 @@ def suggest(session):
                 fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
                 if fc is None or sc is None:
                     continue
-                if repeated_dates(f, s, method, fc, sc):
+                if _repeated_dates(f, s, method, fc, sc, counts, raw_counts):
                     repeated = True
                     continue
                 offset = model["delta"] + fc - sc
@@ -125,30 +178,5 @@ def suggest(session):
                     known.add(pid)
         if repeated:
             session["clock_warnings"].append(f"Repeated {method} timestamps were excluded; these may be reset or copied dates.")
-    # Add date corroboration to existing audio/manual candidates as well as
-    # new clock proposals. Do not alter their content score or saved alignment.
-    by_id = {r["id"]: r for r in records}
-    for pair in retained:
-        pair.pop("clock_support", None)
-        if pair.get("confirmed") or pair.get("stale"):
-            continue
-        f, s = by_id.get(pair["fpv"]), by_id.get(pair["stick"])
-        if not f or not s:
-            continue
-        support = []
-        for model in models:
-            if not model["consistent"]:
-                continue
-            method = model["method"]
-            fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
-            if fc is None or sc is None or repeated_dates(f, s, method, fc, sc):
-                continue
-            expected = model["delta"] + fc - sc
-            difference = pair["offset"] - expected
-            support.append({"method": method, "expected_offset": expected, "alignment_difference": difference,
-                            "agrees": abs(difference) <= CLOCK_TOLERANCE, "tolerance": CLOCK_TOLERANCE,
-                            "independent_flights": model["independent_flights"], "tentative": model["tentative"],
-                            "anchors": [a["pair"] for a in model["anchors"]]})
-        if support:
-            pair["clock_support"] = support
     session["pairs"] = retained
+    refresh_clock_evidence(session, models)
