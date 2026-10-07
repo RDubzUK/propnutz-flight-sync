@@ -4,7 +4,15 @@ const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = value => { const s = Math.max(0, Number(value) || 0); return `${Math.floor(s/60)}:${(s%60).toFixed(2).padStart(5,'0')}`; };
 const duration = value => value == null ? 'Scanning…' : `${Math.floor(value/60)}m ${Math.round(value%60)}s`;
-let sid = localStorage.getItem('audio-pairing-session'), doc, pairId, selected = new Set(), renderKey = '', sessionKey = '', exportKey = '';
+function rememberedSession() {
+  try { return localStorage.getItem('audio-pairing-session'); } catch { return null; }
+}
+function rememberSession(id) {
+  // Remembering the selection is optional; blocked browser storage must not
+  // prevent folder selection or session creation. Session data lives on disk.
+  try { id == null ? localStorage.removeItem('audio-pairing-session') : localStorage.setItem('audio-pairing-session', id); } catch {}
+}
+let sid = rememberedSession(), doc, pairId, selected = new Set(), renderKey = '', sessionKey = '', exportKey = '';
 let token = 0, playing = false, loading = false, traces = {}, browsing = '', pollBusy = false;
 const fpv = $('fpv-player'), stick = $('stick-player');
 const playRequests = new Map();
@@ -53,7 +61,7 @@ function requestPlayback(video) {
 }
 function clearReview() { token++; pause(); releaseAllPreviews(); for (const v of [fpv,stick]) { v.removeAttribute('src'); v.load(); } pairId = null; traces={}; $('review').hidden=true; }
 async function chooseSession(id) {
-  clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; localStorage.setItem('audio-pairing-session',id);
+  clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; rememberSession(id);
   doc=await api(`/api/sessions/${id}`); $('rename-name').value=doc.name;
   $('modified-kind').value=doc.modified_kind || 'end'; $('filenames').checked=doc.use_filenames !== false;
   render(); await refreshSessions();
@@ -212,7 +220,7 @@ async function browse(path) {
 }
 document.querySelectorAll('[data-browse]').forEach(b=>b.onclick=()=>{browsing=b.dataset.browse;$('folder-title').textContent=`Choose ${browsing==='fpv'?'FPV video':'StickCam video'} source folder`;$('folder-dialog').showModal();browse($(`${browsing}-folder`).value||(browsing==='stick'?$('fpv-folder').value:''));});
 action('folder-close',()=>$('folder-dialog').close());action('folder-use',()=>{$(`${browsing}-folder`).value=$('browse-path').value;$('folder-dialog').close();});action('browse-go',()=>browse($('browse-path').value));$('browse-path').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();browse(e.target.value);}};
-action('new-session',()=>{clearReview();sid=null;doc=null;localStorage.removeItem('audio-pairing-session');$('workspace').hidden=true;$('session-controls').hidden=true;$('sources-section').hidden=false;$('sources-section').open=true;$('session-name').focus();sessionKey='';refreshSessions();});
+action('new-session',()=>{clearReview();sid=null;doc=null;rememberSession(null);$('workspace').hidden=true;$('session-controls').hidden=true;$('sources-section').hidden=false;$('sources-section').open=true;$('session-name').focus();sessionKey='';refreshSessions();});
 $('create-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{const s=await post('/api/sessions',{name:$('session-name').value,fpv:$('fpv-folder').value,stick:$('stick-folder').value,recursive:$('recursive').checked});await chooseSession(s.id);}catch(e){notice(e.message,true);}finally{b.disabled=false;}};
 action('rename',async()=>{doc=await api(`/api/sessions/${sid}`,{method:'PATCH',body:JSON.stringify({name:$('rename-name').value})});await refreshSessions();});
 action('rescan',async()=>{await post(`/api/sessions/${sid}/scan`);await poll();});
@@ -229,5 +237,5 @@ document.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=()=>{$('offset').
 $('show-audio').onchange=e=>{$('audio-charts').hidden=!e.target.checked;if(e.target.checked)drawCharts();};window.addEventListener('resize',()=>drawCharts());
 action('export',async()=>{const all=$('export-scope').value==='all',p=currentPair();const pairs=all?doc.pairs.filter(p=>p.confirmed&&!p.stale).map(p=>p.id):(p?.confirmed&&!p.stale?[p.id]:[]);if(!pairs.length)throw new Error('Confirm the current pair, or select all confirmed pairs.');await post(`/api/sessions/${sid}/export`,{pairs,fps:Number($('export-fps').value),profile:$('export-profile').value,trim_start:Number($('trim-start').value),trim_end:$('trim-end').value===''?null:Number($('trim-end').value)});await poll();});
 async function poll(){if(pollBusy)return;pollBusy=true;try{if(sid){const old=doc?.job?.status;doc=await api(`/api/sessions/${sid}`);render();if(['running','queued'].includes(old)&&doc.job?.status==='failed')notice(doc.job.message,true);}await refreshSessions();await refreshExports();}catch(e){if(!doc)notice(e.message,true);}finally{pollBusy=false;}}
-async function boot(){try{const sys=await api('/api/system');if(!sys.ffmpeg||!sys.ffprobe)notice('Install FFmpeg and ffprobe on this machine to read and export recordings.',true);if(sid){try{await chooseSession(sid);}catch{sid=null;localStorage.removeItem('audio-pairing-session');}}await poll();}catch(e){notice(`Could not connect to the app: ${e.message}`,true);}setInterval(poll,2000);}
+async function boot(){try{const sys=await api('/api/system');if(!sys.ffmpeg||!sys.ffprobe)notice('Install FFmpeg and ffprobe on this machine to read and export recordings.',true);if(sid){try{await chooseSession(sid);}catch{sid=null;rememberSession(null);}}await poll();}catch(e){notice(`Could not connect to the app: ${e.message}`,true);}setInterval(poll,2000);}
 boot();

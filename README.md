@@ -12,6 +12,7 @@ The package and project folder remain named `fpv-audio-pairing`. Barlow and Barl
 
 - [Installation guide](docs/INSTALL.md): Windows, Linux and macOS setup, FFmpeg, LAN access, startup, updates and troubleshooting.
 - [User guide](docs/USER_GUIDE.md): matching scopes, pair review, alignment, clock suggestions, exports and session backups.
+- [Release notes](CHANGELOG.md): fixes and update history. Use v0.1.1 or later for the Windows frontend startup fix.
 - [Client-only website investigation](docs/BROWSER_FEASIBILITY.md): local JSON/files, browser processing, large-video limits and the recommended separate browser edition.
 - [Project plan](PROJECT_PLAN.md): implemented scope and remaining work.
 

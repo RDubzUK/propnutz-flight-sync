@@ -127,6 +127,8 @@ Restart using the command or service above. Repository tags preserve the pre-inv
 | Symptom | Action |
 |---|---|
 | `uv` not found | Reopen the terminal after installation; follow uv's PATH instructions. |
+| uv says it could not hardlink files and copied them instead | Installation still succeeds. This is common when the cache and project are on different drives; it does not stop the frontend working. |
+| Browse and Prepare session do nothing, with no `/api/` requests in the server log | Update to v0.1.1 or later, restart the app and press Ctrl+F5. Windows file associations can cause JavaScript to be sent with the wrong MIME type; the app now sets it explicitly. Frontend loading failures also appear in a startup banner. |
 | Missing FFmpeg or ffprobe | Put both binaries on PATH and restart the terminal/service. |
 | Port already in use | Stop the other Flight Sync instance or choose another `--port`. |
 | Remote browser cannot connect | Check the server IP, `--host 0.0.0.0`, service status and private-network firewall. |
@@ -138,3 +140,23 @@ Restart using the command or service above. Repository tags preserve the pre-inv
 | A task says interrupted after restart | Run it again; saved fingerprints are reused. |
 
 See the [user guide](USER_GUIDE.md) for the matching workflow and timing conventions.
+
+### Updating the initial Windows release
+
+Stop the running app with Ctrl+C, then run these commands in your existing checkout:
+
+```powershell
+git pull --ff-only
+uv sync --frozen --python 3.11
+uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
+```
+
+Open `http://127.0.0.1:8768/` and refresh with Ctrl+F5. Source-folder browsing is the app's own directory dialog, including Windows drive shortcuts, rather than a native Windows file picker.
+
+For a frontend that still cannot start, the startup banner provides details. From another PowerShell window, you can inspect the module's response type:
+
+```powershell
+(Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8768/static/app.js?v=6').Headers['Content-Type']
+```
+
+It should be `text/javascript; charset=utf-8`. Once the frontend starts, the server log should show `GET /static/preview-player.js` and `GET /api/system`, followed by session/export API requests.

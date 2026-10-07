@@ -549,12 +549,22 @@ async def local_app(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/") or request.url.path == "/":
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/static/"):
+        # Windows registry file associations can override Python's MIME map.
+        # Modules must be served as JavaScript, including imported modules and
+        # cache-validation responses, regardless of the host's file associations.
+        media_type = {".js": "text/javascript; charset=utf-8",
+                      ".mjs": "text/javascript; charset=utf-8",
+                      ".css": "text/css; charset=utf-8"}.get(Path(request.url.path).suffix.lower())
+        if media_type and response.status_code in {200, 206, 304}:
+            response.headers["Content-Type"] = media_type
+            response.headers["Cache-Control"] = "no-cache"
     return response
 
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+    return FileResponse(STATIC / "index.html", media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
