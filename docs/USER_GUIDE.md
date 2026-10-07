@@ -55,6 +55,12 @@ The timeline covers **all footage available from both sources at the saved sync 
 
 Browser-compatible originals play directly. If a camera codec cannot be played, choose **480p fragments on demand**. Only short fragments near the playhead are generated, while exports retain source resolution.
 
+StickCam is the default **Listen to** feed. Each player shows a spinner while loading, seeking or buffering; a ready player can show that it is waiting for the other feed. Short previews read up to 24 seconds ahead during playback and retain that intent while temporarily paused to buffer. Both feeds refill before resuming together. Encoding/reading slower than real time can still cause buffering.
+
+**Preview acceleration** defaults to **Auto**, detecting the machine running the app rather than the PC viewing it. Available backends include NVIDIA CUDA, Linux VAAPI (Intel/AMD), Windows Direct3D 11 (across vendors) and macOS VideoToolbox. GPU decoding requires a compatible driver, FFmpeg build and source codec. CUDA/VAAPI can also resize on the GPU; preview H.264 encoding stays on the CPU. Failed hardware attempts fall back to CPU and are not repeatedly retried for the same source format until the app restarts. Hardware acceleration is optional and its speed depends on the machine and footage.
+
+Choose **CPU only** if a GPU driver causes trouble. This uses a separate fragment cache, avoiding reuse of fragments created in Auto mode. The label below each player shows Original video, CPU preview or the GPU backend that prepared its last fragment. Cached Auto fragments can have been prepared on another machine and are still reused. This setting controls server fragment preparation; browser decoding of originals is managed by the browser.
+
 Saved audio energy trends are shown below the players. Green bands show sampled sections that agree at the proposed offset; gaps are unsampled audio. This is an energy trend display, not a full-recording waveform.
 
 ### Adjust alignment
@@ -71,7 +77,7 @@ Use the offset field or ±0.05 second buttons, apply the adjustment and replay. 
 
 ## 5. Confirm and suggest the rest
 
-Once playback looks aligned, choose **Confirm this pair & suggest others**. The app logs the raw modified-date difference and derives a camera start-clock difference using duration and offset.
+Once playback looks aligned, choose **Confirm this pair & suggest others**. Every confirmed pair contributes, including audio matches, reviewed timestamp suggestions and manually aligned pairs. The app logs the raw modified-date difference and derives a camera start-clock difference using duration and offset, then immediately suggests other overlapping recordings and split FPV parts without analyzing their audio again.
 
 - Modification dates normally represent recording ends; select recording start when your files behave that way.
 - Optional filename timestamps are treated as recording starts.
@@ -79,18 +85,25 @@ Once playback looks aligned, choose **Confirm this pair & suggest others**. The 
 - Conflicting confirmed clocks or repeated/reset timestamps are reported and excluded where appropriate.
 - A timestamp candidate is a **suggestion**, not an audio-confirmed match. Review it too.
 
+The clock panel lists the confirmed pairs used and their raw date differences. Candidate rows show **Modified dates agree** when their sync offset is within two seconds of the learned clock prediction, including candidates already found from audio. Within the same evidence tier, date-supported candidates appear first. If the dates predict a different offset, that difference is shown without overwriting the audio/manual alignment or score. One confirmed flight remains tentative; multiple FPV parts of the same StickCam flight do not count as independent flights. Matching date signals do not automatically confirm a pair.
+
 Several FPV files can relate to one StickCam recording, including split DJI/O4 recordings. Each part gets its own overlapping interval and can be confirmed/exported separately. Different video lengths do not count against a content match.
 
 ## 6. Export common footage
 
-In **Aligned exports**, choose the current confirmed pair or all confirmed pairs, frame rate and format:
+In **Aligned exports**, choose the current confirmed pair or all confirmed pairs. **Fast trim** and **Original frame rates** are the defaults:
 
-- **H.264 MP4**: smaller general-purpose files.
-- **DNxHR HQX MOV**: larger files for editing workflows.
+- **Fast trim · no re-encoding** copies video/audio into MP4, retaining original codecs, resolution and frame cadence. It is generally limited by storage speed. Cuts between keyframes retain decoding preroll and use MP4 edit lists to hide it. An editor must honor those edit lists; if it exposes extra frames or the cut fails timing checks, choose Accurate trim. The app does not silently fall back to a slow re-encode.
+- **Accurate trim · H.264 MP4** decodes and re-encodes the requested interval for a broadly compatible cut.
+- **Accurate trim · DNxHR HQX MOV** re-encodes to larger editing files.
+
+**Original frame rates** keeps each source's timing cadence, including fractional rates. Two sources can therefore have different frame counts. Accurate trim also offers an explicit constant-rate conversion; choosing 24/25/30/50/60fps resamples both sources to that rate and can drop/duplicate frames. Fast trim always preserves original rates.
 
 Optional trim values are measured from the beginning of the common interval. Leave the end blank for full overlap; when exporting all pairs, each uses its own common end. An explicit end must fit inside every selected pair.
 
-Each output pair starts at zero and has identical video frame counts at the chosen frame rate. Download the ZIP and place both clips at the same timeline position in DaVinci Resolve or another editor. The included `alignment.json` records source names, start times, offset and export details. Equal frame counts preserve a reviewed alignment; they do not correct an inaccurate match.
+Outputs use the same requested shared interval and a common zero-time origin. Native frame/packet boundaries can round the starts/ends by a small amount; frame counts need not be equal. Completed outputs are inspected for duration/start timing, with an opening-packet presentation-time check for fast cuts, avoiding a full video decode. The included `alignment.json` records the requested interval, offset and measured output timing. Fixed-rate accurate exports retain the equal-frame-count check.
+
+Download the ZIP and place both clips at the same timeline position in DaVinci Resolve or another editor. Verify a fast cut in your editor because edit-list support is essential. Output timing checks do not correct an inaccurate match or guarantee every editor's behavior. See [FFmpeg seeking](https://ffmpeg.org/ffmpeg.html#Main-options) and [MP4 edit-list options](https://ffmpeg.org/ffmpeg-formats.html#mov_002c-mp4_002c-ismv).
 
 The ZIP streams directly during download. Outputs are retained on disk, and **Saved exports** lists completed downloads even if the session has been deleted.
 

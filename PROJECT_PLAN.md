@@ -20,8 +20,11 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 - Saved audio trends with matching sections and a playback cursor.
 - User-confirmed clock anchors, end/start modification date interpretation and optional filename timestamps.
 - Timestamp suggestions for other clips and split FPV parts, with inconsistent/repeated clock handling.
+- Show modified-date corroboration on audio/manual candidates, contributing confirmed pairs and independent-flight counts. All reviewed confirmation methods teach the clock; date signals never confirm a match automatically.
 - Manual alignment when audio is unavailable.
-- Confirmed-pair exports of the common interval, optional trimming, equal frame counts and streamed ZIP download.
+- Confirmed-pair exports of the common interval: fast stream-copy cuts with edit lists, accurate trimming, original source cadence by default, optional fixed-rate conversion, measured timing and streamed ZIP download.
+- Preview read-ahead, refill/resume control, per-player buffering indicators and StickCam audio by default.
+- Detect optional GPU preview decoding on each app host (CUDA, Linux VAAPI, Windows Direct3D 11, macOS VideoToolbox), with GPU resizing where supported, cached-chunk reuse, CPU fallback and a CPU-only override.
 - Exports remain available after session deletion.
 
 ## Deliberate exclusions

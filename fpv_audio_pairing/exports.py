@@ -1,4 +1,4 @@
-"""Export a shared interval onto equal CFR frame counts for an edit timeline."""
+"""Export shared source intervals, preserving cadence unless CFR is requested."""
 
 from __future__ import annotations
 
@@ -13,27 +13,79 @@ import zipfile
 from pathlib import Path
 
 
+def _probe_data(command, scratch, run=None):
+    if run:
+        try:
+            run(command, scratch)
+            return json.loads(scratch.read_text(encoding="utf-8"))
+        finally:
+            scratch.unlink(missing_ok=True)
+    result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=60)
+    return json.loads(result.stdout)
+
+
+def _output_info(path, duration, source_fps, frame_count=None, copy=False, run=None):
+    """Inspect completed cuts before offering them as aligned downloads."""
+    data = _probe_data([
+        shutil.which("ffprobe") or "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name,nb_frames,duration,start_time,avg_frame_rate,r_frame_rate",
+        "-of", "json", str(path),
+    ], path.with_suffix(".timing"), run=run)
+    stream = data["streams"][0]
+    actual_duration = float(stream.get("duration", 0))
+    start = float(stream.get("start_time", 0))
+    tolerance = max(.002, 1 / source_fps)
+    if not math.isfinite(actual_duration) or not math.isfinite(start) or actual_duration <= 0:
+        raise RuntimeError(f"{path.name} has invalid exported timing")
+    if frame_count is not None:
+        if int(stream.get("nb_frames", 0)) != frame_count or abs(actual_duration - duration) > .001:
+            raise RuntimeError(f"{path.name} did not encode the complete shared interval")
+    elif start < -.002 or start > tolerance + .002 or abs(actual_duration - duration) > max(.05, 3 * tolerance):
+        raise RuntimeError(f"{path.name} could not preserve the requested cut timing. Choose Accurate trim with original frame rates.")
+    if copy:
+        # Only inspect the opening packets, including any keyframe preroll.
+        # Editors must honor the MP4 edit list to hide that decoding preroll.
+        packets = _probe_data([
+            shutil.which("ffprobe") or "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-read_intervals", "%+#512", "-show_packets", "-show_entries", "packet=pts_time,flags",
+            "-of", "json", str(path),
+        ], path.with_suffix(".packets"), run=run)
+        times = [float(p["pts_time"]) for p in packets.get("packets", [])
+                 if p.get("pts_time") not in {None, "N/A"} and "D" not in p.get("flags", "")]
+        visible = [t for t in times if math.isfinite(t) and t >= -.001]
+        if not visible or min(visible) > tolerance + .002:
+            raise RuntimeError(f"{path.name} has no frame at the requested start. Choose Accurate trim with original frame rates.")
+        stream["first_presented_packet"] = min(visible)
+    stream["duration"] = actual_duration
+    stream["start_time"] = start
+    stream["source_fps"] = source_fps
+    return stream
+
+
 def export_pair(
     info: dict,
     radio_path: Path,
     fpv_path: Path,
     directory: Path,
-    fps: int = 30,
-    profile: str = "h264",
+    fps: int | None = None,
+    profile: str = "copy",
     run=None,
     progress=None,
     cancelled=None,
 ) -> dict:
-    if fps not in {24, 25, 30, 50, 60}:
-        raise ValueError("Export frame rate must be 24, 25, 30, 50 or 60")
-    if profile not in {"h264", "dnxhr"}:
-        raise ValueError("Export profile must be h264 or dnxhr")
-    frame_count = math.floor(info["overlap_duration"] * fps + 1e-7)
-    if frame_count < 1:
+    if fps is not None and fps not in {24, 25, 30, 50, 60}:
+        raise ValueError("Choose original frame rates or 24, 25, 30, 50 or 60fps")
+    if profile not in {"copy", "h264", "dnxhr"}:
+        raise ValueError("Export profile must be copy, h264 or dnxhr")
+    if profile == "copy" and fps is not None:
+        raise ValueError("Fast trim preserves each source's frame rate; select Original frame rates")
+    frame_count = math.floor(info["overlap_duration"] * fps + 1e-7) if fps is not None else None
+    duration = frame_count / fps if frame_count is not None else info["overlap_duration"]
+    if duration <= 0 or frame_count == 0:
         raise ValueError("Shared interval is shorter than one export frame")
-    duration = frame_count / fps
     directory.mkdir(parents=True, exist_ok=True)
     outputs = []
+    output_timing = {}
     for index, (kind, source, start) in enumerate(
         (("StickCam", radio_path, info["radio_start"]), ("FPV", fpv_path, info["fpv_start"]))
     ):
@@ -45,7 +97,14 @@ def export_pair(
         suffix = "_aligned"
         name = f"{stem}{suffix}.{'mov' if profile == 'dnxhr' else 'mp4'}"
         destination = directory / name
-        video_filters = f"fps={fps}:start_time=0:round=near,scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,setpts=N/({fps}*TB)"
+        metadata = info.get("source_metadata", {}).get("radio" if index == 0 else "fpv", {})
+        source_fps = float(metadata.get("fps", 0))
+        if not math.isfinite(source_fps) or source_fps <= 0:
+            from .metadata import probe_video
+            metadata = probe_video(source)
+            source_fps = float(metadata["fps"])
+        if not math.isfinite(source_fps) or source_fps <= 0 or duration < 1 / source_fps:
+            raise ValueError(f"Cannot determine a usable frame rate/interval for {source.name}")
         command = [
             shutil.which("ffmpeg") or "ffmpeg",
             "-nostdin",
@@ -62,17 +121,26 @@ def export_pair(
             "0:v:0",
             "-map",
             "0:a:0?",
-            "-filter_threads",
-            "1",
-            "-vf",
-            video_filters,
-            "-af",
-            f"aresample=async=1:first_pts=0,apad,atrim=duration={duration:.9f},asetpts=N/SR/TB",
-            "-frames:v",
-            str(frame_count),
             "-t",
             f"{duration:.9f}",
         ]
+        if profile == "copy":
+            # Do not shift each file independently to its previous keyframe.
+            # Keep preroll for decoding, hidden by the MP4 edit list at zero.
+            command += ["-c", "copy", "-map_metadata", "0", "-map_chapters", "-1",
+                        "-avoid_negative_ts", "disabled", "-use_editlist", "1"]
+        else:
+            filters = "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
+            if fps is not None:
+                filters = f"fps={fps}:start_time=0:round=near," + filters + f",setpts=N/({fps}*TB)"
+                command += ["-frames:v", str(frame_count)]
+            else:
+                # No fps filter, -r, or frame-number clock: retain source PTS
+                # cadence, including fractional rates and variable intervals.
+                command += ["-vsync", "0", "-enc_time_base:v", "-1"]
+            command += ["-filter_threads", "1", "-vf", filters, "-af",
+                        f"aresample=async=1:first_pts=0,apad,atrim=duration={duration:.9f},asetpts=N/SR/TB",
+                        "-map_metadata", "-1"]
         if profile == "dnxhr":
             command += [
                 "-c:v",
@@ -86,7 +154,7 @@ def export_pair(
                 "-ar",
                 "48000",
             ]
-        else:
+        elif profile == "h264":
             command += [
                 "-c:v",
                 "libx264",
@@ -101,7 +169,6 @@ def export_pair(
                 "-b:a",
                 "192k",
             ]
-        metadata = info.get("source_metadata", {}).get("radio" if index == 0 else "fpv", {})
         for key, flag in (
             ("color_primaries", "-color_primaries"),
             ("color_transfer", "-color_trc"),
@@ -109,13 +176,11 @@ def export_pair(
             ("color_range", "-color_range"),
         ):
             value = metadata.get("color", {}).get(key)
-            if value and value not in {"unknown", "unspecified"}:
+            if profile != "copy" and value and value not in {"unknown", "unspecified"}:
                 command += [flag, str(value)]
         command += [
             "-threads",
             "2",
-            "-map_metadata",
-            "-1",
             "-metadata",
             "timecode=00:00:00:00",
             "-movflags",
@@ -123,51 +188,36 @@ def export_pair(
             str(destination),
         ]
         if progress:
-            progress(f"Encoding {kind} · {index + 1}/2")
-        if run:
-            run(command, directory / f"{kind}.log")
-        else:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=4 * 3600)
-            if result.returncode:
-                raise RuntimeError(result.stderr[-1500:])
+            progress(f"{'Copying' if profile == 'copy' else 'Encoding'} {kind} · {index + 1}/2 · {source_fps:g}fps source")
+        try:
+            if run:
+                run(command, directory / f"{kind}.log")
+            else:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=4 * 3600)
+                if result.returncode:
+                    raise RuntimeError(result.stderr[-1500:])
+        except RuntimeError as error:
+            if profile == "copy" and str(error) != "Cancelled":
+                raise RuntimeError(f"Fast trim could not copy {source.name}. Choose Accurate trim with original frame rates. {error}") from error
+            raise
+        if progress:
+            progress(f"Checking {kind} cut timing · {index + 1}/2")
+        output_timing[kind] = _output_info(destination, duration, source_fps,
+                                          frame_count=frame_count, copy=profile == "copy", run=run)
         outputs.append(name)
-    # FFmpeg may decode a damaged source without reporting a fatal error. Ensure
-    # both media streams really contain the requested common frame count.
-    for name in outputs:
-        result = subprocess.run(
-            [
-                shutil.which("ffprobe") or "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=nb_frames,duration,avg_frame_rate",
-                "-of",
-                "json",
-                str(directory / name),
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        )
-        stream = json.loads(result.stdout)["streams"][0]
-        if (
-            int(stream.get("nb_frames", 0)) != frame_count
-            or abs(float(stream.get("duration", 0)) - duration) > 0.001
-        ):
-            raise RuntimeError(f"{name} did not encode the complete shared interval")
     manifest = {
         **info,
         "radio_export": outputs[0],
         "fpv_export": outputs[1],
-        "export_fps": fps,
+        "export_fps": fps if fps is not None else "original",
         "export_profile": profile,
         "export_frame_count": frame_count,
         "export_duration": duration,
-        "timeline_note": "Place both clips at the same timeline position. They start at zero and have identical video frame counts.",
-        "alignment_note": "Accuracy depends on the estimated or manually reviewed offset. CFR export does not make an uncertain estimate frame accurate.",
+        "output_timing": output_timing,
+        "timeline_note": "Place both clips at the same timeline position. Fast trim requires an editor honoring MP4 edit lists."
+                         if profile == "copy" else "Place both clips at the same timeline position.",
+        "alignment_note": "Timing is checked against the requested shared interval within native-frame rounding. "
+                          "Alignment accuracy still depends on the reviewed sync offset. Original-rate exports can have different frame counts.",
     }
     (directory / "alignment.json").write_text(
         json.dumps(manifest, indent=2, allow_nan=False), encoding="utf-8"

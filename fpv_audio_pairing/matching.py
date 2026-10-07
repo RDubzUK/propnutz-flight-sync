@@ -6,6 +6,8 @@ import math
 from collections import Counter
 from statistics import median
 
+CLOCK_TOLERANCE = 2.0
+
 
 def overlap(fpv_duration, stick_duration, offset):
     """Intersect the complete source timelines at the sync offset.
@@ -43,9 +45,12 @@ def refresh_pair_ranges(session):
 
 def clock_start(record, method, modified_kind="end"):
     stamp = record.get("filename_time") if method == "filename" else record["mtime"]
-    if stamp is None or not record.get("metadata"):
+    if stamp is None or not record.get("metadata") or not math.isfinite(stamp):
         return None
-    return stamp - (record["metadata"]["duration"] if method == "modified" and modified_kind == "end" else 0)
+    duration = record["metadata"]["duration"]
+    if not math.isfinite(duration) or duration <= 0:
+        return None
+    return stamp - (duration if method == "modified" and modified_kind == "end" else 0)
 
 
 def clock_model(session, method):
@@ -55,19 +60,23 @@ def clock_model(session, method):
     for pair in session["pairs"]:
         if not pair.get("confirmed") or pair.get("stale"):
             continue
-        f, s = records[pair["fpv"]], records[pair["stick"]]
+        f, s = records.get(pair["fpv"]), records.get(pair["stick"])
+        if not f or not s or not math.isfinite(pair["offset"]):
+            continue
         fc, sc = clock_start(f, method, kind), clock_start(s, method, kind)
         if fc is None or sc is None:
             continue
         delta = sc - fc + pair["offset"]
         values.append(delta)
-        anchors.append({"pair": pair["id"], "stick": s["id"], "delta": delta,
+        anchors.append({"pair": pair["id"], "fpv": f["id"], "stick": s["id"], "delta": delta,
+                        "alignment_method": pair.get("method", "manual"), "offset": pair["offset"],
                         "modified_difference": s["mtime"] - f["mtime"]})
     if not values:
         return None
     centre = median(values)
-    consistent = all(abs(v - centre) <= 2. for v in values)
+    consistent = all(abs(v - centre) <= CLOCK_TOLERANCE for v in values)
     return {"method": method, "delta": centre, "consistent": consistent, "anchors": anchors,
+            "tolerance": CLOCK_TOLERANCE,
             "independent_flights": len({a["stick"] for a in anchors}),
             "tentative": len({a["stick"] for a in anchors}) < 2}
 
@@ -83,10 +92,14 @@ def suggest(session):
     retained = [p for p in session["pairs"] if p.get("confirmed") or p.get("method") != "timestamp"]
     known = {p["id"] for p in retained}
     records = [r for r in session["videos"] if r.get("metadata") and not r.get("stale")]
-    counts = {m: Counter(clock_start(r, m, session.get("modified_kind", "end")) for r in records)
+    counts = {m: Counter((r["kind"], clock_start(r, m, session.get("modified_kind", "end"))) for r in records)
               for m in ("modified", "filename")}
-    # Raw identical modification dates commonly indicate a copy operation.
-    raw_counts = Counter(r["mtime"] for r in records)
+    # Duplicates within a feed can indicate copied/reset dates. A date shared
+    # by one FPV and one StickCam recording is not itself a duplicate clock.
+    raw_counts = Counter((r["kind"], r["mtime"]) for r in records)
+    def repeated_dates(f, s, method, fc, sc):
+        return (max(raw_counts[(f["kind"], f["mtime"])], raw_counts[(s["kind"], s["mtime"])]) > 1
+                if method == "modified" else max(counts[method][(f["kind"], fc)], counts[method][(s["kind"], sc)]) > 1)
     for model in models:
         if not model["consistent"]:
             session["clock_warnings"].append(f"Confirmed {model['method']} clock offsets disagree; suggestions from this clock are disabled.")
@@ -101,8 +114,7 @@ def suggest(session):
                 fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
                 if fc is None or sc is None:
                     continue
-                if (method == "modified" and max(raw_counts[f["mtime"]], raw_counts[s["mtime"]]) > 1
-                    or method == "filename" and max(counts[method][fc], counts[method][sc]) > 1):
+                if repeated_dates(f, s, method, fc, sc):
                     repeated = True
                     continue
                 offset = model["delta"] + fc - sc
@@ -113,4 +125,30 @@ def suggest(session):
                     known.add(pid)
         if repeated:
             session["clock_warnings"].append(f"Repeated {method} timestamps were excluded; these may be reset or copied dates.")
+    # Add date corroboration to existing audio/manual candidates as well as
+    # new clock proposals. Do not alter their content score or saved alignment.
+    by_id = {r["id"]: r for r in records}
+    for pair in retained:
+        pair.pop("clock_support", None)
+        if pair.get("confirmed") or pair.get("stale"):
+            continue
+        f, s = by_id.get(pair["fpv"]), by_id.get(pair["stick"])
+        if not f or not s:
+            continue
+        support = []
+        for model in models:
+            if not model["consistent"]:
+                continue
+            method = model["method"]
+            fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
+            if fc is None or sc is None or repeated_dates(f, s, method, fc, sc):
+                continue
+            expected = model["delta"] + fc - sc
+            difference = pair["offset"] - expected
+            support.append({"method": method, "expected_offset": expected, "alignment_difference": difference,
+                            "agrees": abs(difference) <= CLOCK_TOLERANCE, "tolerance": CLOCK_TOLERANCE,
+                            "independent_flights": model["independent_flights"], "tentative": model["tentative"],
+                            "anchors": [a["pair"] for a in model["anchors"]]})
+        if support:
+            pair["clock_support"] = support
     session["pairs"] = retained

@@ -6,6 +6,8 @@ This is a local Python application with a web interface. Python, FFmpeg, your re
 
 Recommended initial setup: a desktop or laptop, Python 3.11 supplied by uv, and enough free space for aligned exports. Audio analysis does not require a GPU. Preview/export decoding and encoding are performed by FFmpeg. No Rust, radio calibration or telemetry parser is needed.
 
+The same installation supports machines with no GPU and NVIDIA, AMD or Intel GPUs. Preview acceleration is optional: Auto inspects the app host's FFmpeg/driver support, tries CUDA, Linux VAAPI, Windows Direct3D 11 or macOS VideoToolbox where available, then falls back to CPU. A vendor-specific Python package or CUDA toolkit is not required. Linux VAAPI also requires access to a `/dev/dri/renderD*` device. Use **CPU only** in Pair Review if hardware preview preparation causes trouble. Restart the app after changing drivers or FFmpeg so capabilities are detected again. Fast trim exports copy compressed video and audio and do not require GPU support; accurate exports currently use CPU encoding.
+
 ## 1. Install prerequisites
 
 Install [uv using its official instructions](https://docs.astral.sh/uv/getting-started/installation/). Common options:

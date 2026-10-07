@@ -13,6 +13,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
@@ -495,30 +496,36 @@ def save_pair(sid: str, options: PairOptions):
 @app.get("/api/sessions/{sid}/videos/{vid}/original")
 def original(sid: str, vid: str):
     r = video(sid, vid)
-    return FileResponse(r["path"], media_type="video/mp4" if Path(r["path"]).suffix.lower() in {".mp4", ".m4v"} else None)
+    return MediaFileResponse(r["path"], media_type="video/mp4" if Path(r["path"]).suffix.lower() in {".mp4", ".m4v"} else None)
+
+
+class MediaFileResponse(FileResponse):
+    # Retain HTTP range support with fewer disk/thread hops for large originals.
+    chunk_size = 1024 ** 2
 
 
 @app.get("/api/sessions/{sid}/videos/{vid}/preview")
-def preview_info(sid: str, vid: str):
+def preview_info(sid: str, vid: str, acceleration: Literal["auto", "cpu"] = "auto"):
     r = video(sid, vid)
     if not r.get("metadata"):
         raise HTTPException(409, "Wait for source scanning to finish")
-    return preview.manifest(r["path"], r["metadata"])
+    return preview.manifest(r["path"], r["metadata"], acceleration)
 
 
 @app.get("/api/sessions/{sid}/videos/{vid}/preview/{index}")
-def preview_chunk(sid: str, vid: str, index: int, source: str):
+def preview_chunk(sid: str, vid: str, index: int, source: str, acceleration: Literal["auto", "cpu"] = "auto"):
     r = video(sid, vid)
-    if preview.source_key(r["path"]) != source:
+    if preview.source_key(r["path"], acceleration) != source:
         raise HTTPException(409, "Source changed; reload the preview")
     with PREVIEWS:
         try:
             path, details = preview.fragment(r["path"], r["metadata"], index, store.directory(sid) / "previews",
-                lambda key, cmd, log, timeout: execute(threading.Event(), cmd, log, timeout), vid, threading.Event())
+                lambda key, cmd, log, timeout: execute(threading.Event(), cmd, log, timeout), vid, threading.Event(), acceleration)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, str(exc)) from None
     return FileResponse(path, media_type="video/mp4", headers={"X-Preview-Start": str(details["start"]),
-        "X-Preview-Duration": str(details["duration"]), "X-Preview-Video-Start": str(details["video_start"])})
+        "X-Preview-Duration": str(details["duration"]), "X-Preview-Video-Start": str(details["video_start"]),
+        "X-Preview-Decoder": details.get("decoder", "cpu")})
 
 
 @app.get("/api/sessions/{sid}/videos/{vid}/audio")
@@ -534,8 +541,8 @@ def audio_trace(sid: str, vid: str):
 
 class ExportOptions(BaseModel):
     pairs: list[str] = Field(min_length=1)
-    fps: int = 30
-    profile: str = "h264"
+    fps: int | None = None
+    profile: str = "copy"
     trim_start: float = Field(default=0, ge=0, allow_inf_nan=False)
     trim_end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
@@ -546,13 +553,17 @@ def export(sid: str, options: ExportOptions):
     selected = [p for p in s["pairs"] if p["id"] in set(options.pairs)]
     if len(selected) != len(set(options.pairs)) or any(not p.get("confirmed") or p.get("stale") for p in selected):
         raise HTTPException(400, "Export requires confirmed pairs with unchanged source recordings")
-    if options.fps not in {24, 25, 30, 50, 60} or options.profile not in {"h264", "dnxhr"}:
+    if options.fps not in {None, 24, 25, 30, 50, 60} or options.profile not in {"copy", "h264", "dnxhr"}:
         raise HTTPException(400, "Choose a supported frame rate and export format")
+    if options.profile == "copy" and options.fps is not None:
+        raise HTTPException(400, "Fast trim uses original frame rates. Select Accurate trim to convert frame rates.")
     for p in selected:
-        video(sid, p["fpv"])
-        video(sid, p["stick"])
+        sources = [video(sid, p[k]) for k in ("fpv", "stick")]
+        rates = [options.fps] if options.fps is not None else [r["metadata"]["fps"] for r in sources]
+        if any(not math.isfinite(rate) or rate <= 0 for rate in rates):
+            raise HTTPException(400, "Rescan the source videos to determine their original frame rates")
         end = options.trim_end if options.trim_end is not None else p["overlap_duration"]
-        if end > p["overlap_duration"] or end - options.trim_start < 1 / options.fps:
+        if end > p["overlap_duration"] or end - options.trim_start < max(1 / rate for rate in rates):
             raise HTTPException(400, "Trim must fit inside every selected pair's overlap")
     eid = uuid.uuid4().hex
     directory = store.ROOT / "exports" / store.identifier(sid) / eid
@@ -574,7 +585,7 @@ def export(sid: str, options: ExportOptions):
         if flag.is_set():
             raise RuntimeError("Cancelled")
         result = {"id": eid, "session": sid, "session_name": s["name"], "created": time.time(), "pairs": len(manifests),
-                  "profile": options.profile, "fps": options.fps, "directory": str(directory)}
+                  "profile": options.profile, "fps": options.fps if options.fps is not None else "original", "directory": str(directory)}
         (directory / "export.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         store.update(sid, lambda doc: doc["exports"].append(result))
     return task(sid, "Exporting aligned clips", run)

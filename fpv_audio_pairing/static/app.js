@@ -1,4 +1,4 @@
-import {loadFastPreview, releaseAllPreviews} from './preview-player.js';
+import {loadFastPreview, releaseAllPreviews, setPreviewPlaybackIntent} from './preview-player.js?v=3';
 
 const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,6 +14,7 @@ function rememberSession(id) {
 }
 let sid = rememberedSession(), doc, pairId, selected = new Set(), renderKey = '', sessionKey = '', exportKey = '';
 let token = 0, playing = false, loading = false, traces = {}, browsing = '', pollBusy = false;
+let buffering = false, bufferReason = '';
 let counterpartId = null, counterpartKey = '';
 const fpv = $('fpv-player'), stick = $('stick-player');
 const playRequests = new Map();
@@ -41,7 +42,29 @@ function holdPlayback() {
     video.pause();
   }
 }
-function pause() { playing = false; playIntent++; holdPlayback(); }
+function pause() {
+  playing = false; buffering = false; bufferReason = ''; playIntent++;
+  for (const video of [fpv,stick]) setPreviewPlaybackIntent(video,false);
+  holdPlayback(); updateBufferIndicators();
+}
+function bufferedAhead(video) {
+  const at=video.currentTime;
+  for (let i=0;i<video.buffered.length;i++) {
+    if (video.buffered.start(i)<=at+.04 && video.buffered.end(i)>at) return video.buffered.end(i)-at;
+  }
+  return 0;
+}
+function updateBufferIndicators() {
+  const p=currentPair(), at=p?Math.max(0,fpv.currentTime-p.fpv_start):0;
+  const refill=p?Math.min(1.5,Math.max(.05,p.overlap_duration-at-.12)):1.5;
+  for (const [video,kind,other] of [[fpv,'fpv','StickCam'],[stick,'stick','FPV']]) {
+    const visible=!video.error && (loading || video.seeking || (playing && (buffering || video.readyState<3)));
+    const label=loading?'Preparing preview…':video.seeking?'Seeking…':bufferReason==='sync'?'Synchronizing previews…':video.readyState<3 || bufferedAhead(video)<refill?'Buffering…':`Waiting for ${other} preview…`;
+    $(`${kind}-buffer`).hidden=!visible;
+    if ($(`${kind}-buffer-label`).textContent!==label) $(`${kind}-buffer-label`).textContent=label;
+    video.setAttribute('aria-busy',String(visible));
+  }
+}
 function requestPlayback(video) {
   if (!playing || loading || !video.paused || playRequests.has(video)) return;
   const request = {generation: token, intent: playIntent, cancelled: false};
@@ -60,7 +83,7 @@ function requestPlayback(video) {
   try { Promise.resolve(video.play()).catch(failed).finally(finished); }
   catch (error) { failed(error); finished(); }
 }
-function clearReview() { token++; pause(); releaseAllPreviews(); for (const v of [fpv,stick]) { v.removeAttribute('src'); v.load(); } pairId = null; traces={}; $('review').hidden=true; }
+function clearReview() { token++; loading=false; pause(); releaseAllPreviews(); for (const v of [fpv,stick]) { v.removeAttribute('src'); v.load(); } pairId = null; traces={}; $('review').hidden=true; }
 async function chooseSession(id) {
   clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; rememberSession(id);
   counterpartId=null; counterpartKey='';
@@ -86,9 +109,15 @@ function list(kind) {
   }).join('') || '<div class="empty">No recordings found in this folder.</div>';
 }
 function selectionLabel() { $('selection-count').textContent=`${selected.size} selected`; }
+function modifiedSupport(pair) { return pair.clock_support?.find(s=>s.method==='modified'); }
+function dateSupportLabel(pair) {
+  const support=modifiedSupport(pair);
+  if (!support) return '';
+  return support.agrees?`Modified dates agree · ${support.independent_flights} confirmed flight${support.independent_flights!==1?'s':''}${support.tentative?' · tentative':''}`:`Modified-date estimate differs by ${Math.abs(support.alignment_difference).toFixed(2)}s`;
+}
 function rankedPairs(pairs) {
   const rank=p=>p.confirmed?0:p.confidence==='Strong'?1:p.method==='timestamp'?3:2;
-  return [...pairs].sort((a,b)=>rank(a)-rank(b)||(b.score||0)-(a.score||0));
+  return [...pairs].sort((a,b)=>rank(a)-rank(b)||Number(modifiedSupport(b)?.agrees || false)-Number(modifiedSupport(a)?.agrees || false)||(b.score||0)-(a.score||0));
 }
 function renderPairList(target, pairs, {stickOnly=false, empty='No candidate pairs yet.'} = {}) {
   $(target).innerHTML=pairs.length?`<table class="pair-table"><thead><tr><th>${stickOnly?'StickCam recording':'Recordings'}</th><th>Evidence</th><th>Full shared footage</th><th></th></tr></thead><tbody>${pairs.map(p=>{
@@ -96,7 +125,8 @@ function renderPairList(target, pairs, {stickOnly=false, empty='No candidate pai
     const fpvName=escape(record(p.fpv)?.name || 'Missing FPV file');
     const stickName=escape(record(p.stick)?.name || 'Missing StickCam file');
     const names=stickOnly?`<strong>${stickName}</strong>`:`<strong>${fpvName}</strong><br>${stickName}`;
-    return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names">${names}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.score!=null?`<br><small>Evidence ${Math.round(p.score*100)}/100</small>`:''}${sections?`<br><small>${sections.correlated_sections}/${sections.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;
+    const dateLabel=dateSupportLabel(p);
+    return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names">${names}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.score!=null?`<br><small>Evidence ${Math.round(p.score*100)}/100</small>`:''}${sections?`<br><small>${sections.correlated_sections}/${sections.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}${dateLabel?`<br><small>${escape(dateLabel)}</small>`:''}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;
   }).join('')}</tbody></table>`:`<div class="empty">${escape(empty)}</div>`;
   $(target).querySelectorAll('[data-pair]').forEach(button=>button.onclick=()=>openPair(button.dataset.pair,{scrollToPreview:true}).catch(error=>notice(error.message,true)));
 }
@@ -154,7 +184,7 @@ function render() {
   $('fpv-list').innerHTML=list('fpv'); $('stick-list').innerHTML=list('stick');
   document.querySelectorAll('[data-video]').forEach(input=>input.onchange=()=>{input.checked?selected.add(input.dataset.video):selected.delete(input.dataset.video); document.querySelector('input[name="scope"][value="selected"]').checked=true; selectionLabel();}); selectionLabel();
   for (const kind of ['fpv','stick']) { const select=$(`manual-${kind}`), previous=select.value; select.innerHTML=doc.videos.filter(r=>r.kind===kind&&r.metadata).map(r=>`<option value="${r.id}">${escape(r.name)}</option>`).join(''); if(previous)select.value=previous; }
-  $('clock-info').innerHTML=(doc.clocks||[]).map(m=>`<p><strong>${m.method==='modified'?'Modified-date':'Filename'} clock:</strong> ${m.delta>=0?'+':''}${m.delta.toFixed(2)}s · ${m.independent_flights} confirmed flight${m.independent_flights!==1?'s':''} · ${m.consistent?(m.tentative?'tentative, one flight':'consistent'):'conflicting'}<br>${m.anchors.map(a=>`Modified date difference: ${a.modified_difference>=0?'+':''}${a.modified_difference.toFixed(2)}s`).join('<br>')}</p>`).join('') || '<p>No camera clock learned yet. Confirm a reviewed pair to suggest other files.</p>';
+  $('clock-info').innerHTML=(doc.clocks||[]).map(m=>`<p><strong>${m.method==='modified'?'Modified-date':'Filename'} clock:</strong> ${m.delta>=0?'+':''}${m.delta.toFixed(2)}s · ${m.independent_flights} confirmed flight${m.independent_flights!==1?'s':''} · ${m.consistent?(m.tentative?'tentative, one flight':'consistent'):'conflicting'}<br><small>Adjusted for recording duration and confirmed sync offset. Agreement tolerance: ±${m.tolerance || 2}s.</small></p><details class="clock-anchors"><summary>Confirmed pairs used (${m.anchors.length})</summary>${m.anchors.map(a=>{const pair=doc.pairs.find(p=>p.id===a.pair);return `<p><strong>${escape(record(a.fpv || pair?.fpv)?.name || 'FPV')} + ${escape(record(a.stick)?.name || 'StickCam')}</strong><br>Modified date difference: ${a.modified_difference>=0?'+':''}${a.modified_difference.toFixed(2)}s · ${escape(a.alignment_method || pair?.method || 'reviewed')} alignment</p>`;}).join('')}</details>`).join('') || '<p>No camera clock learned yet. Confirm an audio, timestamp or manually aligned pair to suggest other files.</p>';
   $('clock-info').innerHTML+=(doc.clock_warnings||[]).map(w=>`<p class="error">${escape(w)}</p>`).join('');
   const ms=doc.match_summary; $('match-summary').textContent=ms?`Compared ${ms.fpv} FPV clips against ${ms.stick} StickCam clips (${ms.comparisons} comparisons). ${ms.candidates} audio candidates. Scores measure evidence strength, not a match probability.`:'';
   $('match-errors').innerHTML=(doc.match_errors||[]).map(e=>`<p class="hint error">${escape(e)}</p>`).join('');
@@ -165,7 +195,13 @@ function render() {
   renderExports(doc.exports||[], 'exports');
 }
 function renderExports(records, target) {
-  $(target).innerHTML=records.length?records.map(e=>`<div class="export-row"><span><strong>${escape(e.session_name)}</strong><br><small>${e.pairs} pair${e.pairs!==1?'s':''} · ${e.profile.toUpperCase()} · ${e.fps}fps · ${new Date(e.created*1000).toLocaleString()}</small></span><a href="/api/exports/${e.session}/${e.id}/download">Download ZIP</a></div>`).join(''):'<p class="hint">No completed exports yet.</p>';
+  $(target).innerHTML=records.length?records.map(e=>`<div class="export-row"><span><strong>${escape(e.session_name)}</strong><br><small>${e.pairs} pair${e.pairs!==1?'s':''} · ${escape(e.profile==='copy'?'Fast trim':e.profile.toUpperCase())} · ${escape(e.fps==='original'?'Original frame rates':`${e.fps}fps`)} · ${new Date(e.created*1000).toLocaleString()}</small></span><a href="/api/exports/${e.session}/${e.id}/download">Download ZIP</a></div>`).join(''):'<p class="hint">No completed exports yet.</p>';
+}
+function updateExportOptions() {
+  const copy=$('export-profile').value==='copy';
+  if(copy) $('export-fps').value='original';
+  $('export-fps').disabled=copy;
+  $('export-note').textContent=copy?'Fast trim copies the original video/audio without re-encoding or changing frame cadence. Non-keyframe cuts need an editor that honors MP4 edit lists. Output timing is checked; use Accurate trim if a cut fails or your editor exposes extra starting frames.':$('export-fps').value==='original'?'Accurate trim re-encodes the shared interval while keeping each source’s frame cadence. Frame counts can differ; alignment uses time.':'Accurate trim converts both sources to the selected constant frame rate with equal frame counts. This can drop or duplicate source frames.';
 }
 async function refreshExports() { const all=await api('/api/exports'), key=JSON.stringify(all);if(key!==exportKey){exportKey=key;renderExports(all,'saved-exports');} }
 function matchedAudioRanges(p) {
@@ -198,6 +234,8 @@ async function loadVideo(v, r, start, generation) {
   const base=`/api/sessions/${sid}/videos/${r.id}`;
   const notify=(text,error)=>{if(current()){$('preview-status').textContent=text;if(error)notice(text,true);}};
   if($('preview-mode').value==='auto' && ['h264','vp8','vp9','av1'].includes(r.metadata.codec)) {
+    v.preload='auto';
+    v.dataset.previewDecoder='original';
     try { await new Promise((resolve,reject)=>{
       const timeout=setTimeout(()=>finish(new Error('Original video did not load')),12000);
       function finish(error){clearTimeout(timeout);v.removeEventListener('loadeddata',ready);v.removeEventListener('error',failed);error?reject(error):resolve();}
@@ -206,11 +244,12 @@ async function loadVideo(v, r, start, generation) {
     }); if(current())notify('Playing originals · no preview conversion needed.'); return;
     } catch { if(!current())return; }
   }
-  await loadFastPreview(v,base+'/preview',current,notify,start);
+  await loadFastPreview(v,base+'/preview',current,notify,start,$('preview-acceleration').value);
 }
 async function openPair(id, {scrollToPreview=false} = {}) {
   pause(); releaseAllPreviews(); const generation=++token; pairId=id; const p=currentPair();if(!p)throw new Error('Pair no longer available');
   loading=true; $('review').hidden=false; $('play').disabled=true; $('preview-status').textContent='Loading both video previews…'; updateReview();
+  updateBufferIndicators();
   if (scrollToPreview) {
     $('pairs-section').open=true;
     requestAnimationFrame(()=>{
@@ -227,7 +266,7 @@ async function openPair(id, {scrollToPreview=false} = {}) {
     if(generation!==token)return;
     const failed=loaded.find(r=>r.status==='rejected');if(failed)throw failed.reason;
     $('play').disabled=false; audioChoice(); seek(0);
-  } finally {if(generation===token){loading=false;updateReview();}await tracePromise;}
+  } finally {if(generation===token){loading=false;updateReview();updateBufferIndicators();}await tracePromise;}
 }
 function seek(at) {
   const p=currentPair();if(!p)return;
@@ -242,7 +281,9 @@ function play() {
   audioChoice();
   if (Number($('seek').value) >= currentPair().overlap_duration - .15) seek(0);
   playing = true; playIntent++;
-  requestPlayback(fpv); requestPlayback(stick);
+  buffering=true; bufferReason='buffer';
+  for (const video of [fpv,stick]) setPreviewPlaybackIntent(video,true);
+  updateBufferIndicators();
 }
 function draw(canvas,trace,p,isStick,at) {
   const width=Math.max(400,canvas.clientWidth),height=110;canvas.width=width;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);
@@ -255,21 +296,30 @@ function draw(canvas,trace,p,isStick,at) {
 }
 function drawCharts(at=Number($('seek').value)||0){const p=currentPair();draw($('fpv-chart'),traces.fpv,p,false,at);draw($('stick-chart'),traces.stick,p,true,at);}
 setInterval(()=>{
-  const p=currentPair();if(!p||loading)return;
+  const p=currentPair();if(!p)return;updateBufferIndicators();if(loading)return;
   let at=Math.max(0,fpv.currentTime-p.fpv_start);
   if(playing){
     if(at>=p.overlap_duration-.05){pause();at=p.overlap_duration;}
-    else if(fpv.readyState<3||stick.readyState<3||fpv.seeking||stick.seeking){holdPlayback();}
+    else if(fpv.readyState<3||stick.readyState<3||fpv.seeking||stick.seeking||Math.min(bufferedAhead(fpv),bufferedAhead(stick))<Math.min(.12,Math.max(.005,p.overlap_duration-at-.06))){
+      buffering=true;bufferReason='buffer';holdPlayback();
+    }
+    else if(buffering && Math.min(bufferedAhead(fpv),bufferedAhead(stick))<Math.min(1.5,Math.max(.05,p.overlap_duration-at-.12))){holdPlayback();}
     else if(Math.abs(stick.currentTime-(p.radio_start+at))>.12){
       // Hold the FPV playhead too, so StickCam can catch up to a stationary
       // target rather than repeatedly seeking after a moving video.
-      holdPlayback(); stick.currentTime=p.radio_start+at;
-    }else{requestPlayback(fpv);requestPlayback(stick);}
+      buffering=true;bufferReason='sync';holdPlayback(); stick.currentTime=p.radio_start+at;
+    }else{buffering=false;bufferReason='';requestPlayback(fpv);requestPlayback(stick);}
   }
+  updateBufferIndicators();
   $('seek').value=at;$('common-time').textContent=`Common ${fmt(at)} / ${fmt(p.overlap_duration)}`;
-  $('fpv-time').textContent=`Source ${fmt(fpv.currentTime)}`;$('stick-time').textContent=`Source ${fmt(stick.currentTime)}`;drawCharts(at);
+  for (const [video,kind] of [[fpv,'fpv'],[stick,'stick']]) {
+    const method=video.dataset.previewDecoder;
+    $(`${kind}-time`).textContent=`Source ${fmt(video.currentTime)}${method?` · ${method==='original'?'Original video':method==='cpu'?'CPU preview':`GPU preview (${method})`}`:''}`;
+  }
+  drawCharts(at);
 },150);
 window.addEventListener('pagehide', pause);
+for (const video of [fpv,stick]) for (const event of ['loadstart','waiting','stalled','canplay','playing','seeking','seeked','progress','error']) video.addEventListener(event,updateBufferIndicators);
 async function alignment(confirm=false, offset=Number($('offset').value)) {
   const p=currentPair();if(!p)throw new Error('Open a pair first');pause();
   if(confirm && Math.abs(p.offset-offset)>.00001)throw new Error('Apply the new offset and preview the alignment before confirming it.');
@@ -311,12 +361,16 @@ async function saveClockSettings(){if(!sid)return;try{doc=await api(`/api/sessio
 $('filenames').onchange=saveClockSettings;$('modified-kind').onchange=saveClockSettings;
 action('manual-add',async()=>{const f=$('manual-fpv').value,s=$('manual-stick').value;if(!f||!s)throw new Error('Wait for scanning, then choose one video of each type');doc=await post(`/api/sessions/${sid}/pairs`,{fpv:f,stick:s,offset:Number($('manual-offset').value),confirmed:false});renderKey='';render();await openPair(doc.pairs.find(p=>p.fpv===f&&p.stick===s).id);});
 action('play',play);action('pause',pause);$('seek').oninput=e=>{pause();seek(e.target.value);};$('listen').onchange=audioChoice;$('speed').onchange=()=>{fpv.playbackRate=stick.playbackRate=Number($('speed').value);};$('preview-mode').onchange=()=>pairId&&openPair(pairId).catch(e=>notice(e.message,true));
+$('preview-acceleration').onchange=()=>pairId&&openPair(pairId).catch(e=>notice(e.message,true));
 action('review-start',()=>{pause();seek(0);});
 action('review-match',()=>{const first=matchedAudioRanges(currentPair())[0];if(first){pause();seek(first.start);}});
 action('apply-offset',()=>alignment(false));action('confirm',()=>alignment(true));action('unconfirm',()=>alignment(false));
 document.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=()=>{$('offset').value=(Number($('offset').value)+Number(b.dataset.nudge)).toFixed(3);alignment(false).catch(e=>notice(e.message,true));});
 $('show-audio').onchange=e=>{$('audio-charts').hidden=!e.target.checked;if(e.target.checked)drawCharts();};window.addEventListener('resize',()=>drawCharts());
-action('export',async()=>{const all=$('export-scope').value==='all',p=currentPair();const pairs=all?doc.pairs.filter(p=>p.confirmed&&!p.stale).map(p=>p.id):(p?.confirmed&&!p.stale?[p.id]:[]);if(!pairs.length)throw new Error('Confirm the current pair, or select all confirmed pairs.');await post(`/api/sessions/${sid}/export`,{pairs,fps:Number($('export-fps').value),profile:$('export-profile').value,trim_start:Number($('trim-start').value),trim_end:$('trim-end').value===''?null:Number($('trim-end').value)});await poll();});
+action('export',async()=>{const all=$('export-scope').value==='all',p=currentPair();const pairs=all?doc.pairs.filter(p=>p.confirmed&&!p.stale).map(p=>p.id):(p?.confirmed&&!p.stale?[p.id]:[]);if(!pairs.length)throw new Error('Confirm the current pair, or select all confirmed pairs.');await post(`/api/sessions/${sid}/export`,{pairs,fps:$('export-fps').value==='original'?null:Number($('export-fps').value),profile:$('export-profile').value,trim_start:Number($('trim-start').value),trim_end:$('trim-end').value===''?null:Number($('trim-end').value)});await poll();});
+$('export-profile').onchange=updateExportOptions;$('export-fps').onchange=updateExportOptions;
+$('export-profile').value='copy';$('export-fps').value='original';updateExportOptions();
+$('listen').value='stick';
 async function poll(){if(pollBusy)return;pollBusy=true;try{if(sid){const old=doc?.job?.status;doc=await api(`/api/sessions/${sid}`);render();if(['running','queued'].includes(old)&&doc.job?.status==='failed')notice(doc.job.message,true);}await refreshSessions();await refreshExports();}catch(e){if(!doc)notice(e.message,true);}finally{pollBusy=false;}}
 async function boot(){try{const sys=await api('/api/system');if(!sys.ffmpeg||!sys.ffprobe)notice('Install FFmpeg and ffprobe on this machine to read and export recordings.',true);if(sid){try{await chooseSession(sid);}catch{sid=null;rememberSession(null);}}await poll();}catch(e){notice(`Could not connect to the app: ${e.message}`,true);}setInterval(poll,2000);}
 boot();

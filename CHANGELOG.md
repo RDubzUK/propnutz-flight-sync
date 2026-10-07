@@ -1,11 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 — 7 October 2026
 
+- Add fast MP4 stream-copy trimming without video/audio re-encoding, with explicit edit-list compatibility guidance and output timing checks. Preserve source frame cadence by default; retain accurate H.264/DNxHR trimming and optional fixed-rate conversion.
+- Read preview chunks farther ahead, preserve read-ahead while paused for buffering, and cancel requests only after an actual seek rather than because a prefetched chunk is ahead of the playhead.
+- Add refill/resume hysteresis, per-player loading/buffering spinners, original-video automatic preload and larger HTTP response chunks. Allow timestamp rounding/AAC priming at fragment boundaries.
+- Detect optional preview hardware decoding on each app host: NVIDIA CUDA, Linux VAAPI for AMD/Intel, Windows Direct3D 11 across vendors and macOS VideoToolbox. Resize on the GPU where supported; fall back to CPU for unsupported drivers/clips. Add Auto/CPU controls with a separate CPU cache and show the fragment preparation method below each player.
+- Default Pair Review's audio selector to StickCam.
+- Use every reviewed confirmation as a modified-date anchor, including manual alignments and timestamp suggestions. Show the contributing pairs, annotate date agreement/disagreement on existing audio candidates and prefer date-supported candidates within their evidence tier. Keep duration-adjusted clock suggestions compatible with split FPV files; count independent flights rather than FPV parts. Check duplicate timestamps within each feed, rather than treating a date shared across both feeds as unreliable.
 - Recompute pair review/export ranges from complete source durations and the saved sync offset when loading sessions, including older saved pairs. Audio evidence cannot override the shared-footage range.
 - Show matching-audio seconds separately from full shared footage, with buttons to return to its start or jump to matching audio. Keep green bands limited to the observed audio evidence.
 - Replace the Filename time indicator in Video lists & match scope with Modified date, using each recording's saved filesystem timestamp.
 - Show the file's modification date and time beneath its filename in the browser's local time zone. Existing sessions do not need rescanning for this display.
+
+These changes were code reviewed and FFmpeg option availability was inspected on the Linux host. Playback/export timing and hardware paths have not been exercised on real footage in this update, or verified on Windows/macOS and AMD/Intel machines.
 
 ## v0.2.0 — 7 October 2026
 
