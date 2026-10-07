@@ -14,7 +14,7 @@ The two file lists show filenames, durations, resolution, frame rate and three i
 |---|---|
 | Audio track | FFprobe found an audio stream. This can still be silence or motor noise. |
 | Fingerprints | Usable sampled audio features are saved in this session. |
-| Filename time | A camera date/time could be parsed from the filename. It need not be correct wall-clock time. |
+| Modified date | The file's modification timestamp was captured from the filesystem. Its date and time appear beneath the filename in your browser's local time zone. |
 
 Green tick means available; red cross means absent/unusable; dash means not yet scanned or prepared.
 

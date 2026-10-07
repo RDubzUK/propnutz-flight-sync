@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Replace the Filename time indicator in Video lists & match scope with Modified date, using each recording's saved filesystem timestamp.
+- Show the file's modification date and time beneath its filename in the browser's local time zone. Existing sessions do not need rescanning for this display.
+
 ## v0.2.0 — 7 October 2026
 
 - Add a dedicated Find StickCam counterpart section with an FPV recording picker, audio sampling control, progress/cancel display and ranked StickCam candidates.
