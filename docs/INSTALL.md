@@ -47,7 +47,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-Git is optional if you receive a source ZIP. To clone the private repository, your GitHub account must be granted access. Authenticate through Git or GitHub CLI; do not paste access tokens into source files or commands in a shared document.
+Git is optional if you download a release source ZIP. The repository is public, so cloning or downloading it does not require a GitHub account or invitation.
 
 ## 2. Download the project
 

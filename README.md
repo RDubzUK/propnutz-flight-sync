@@ -16,7 +16,7 @@ The package and project folder remain named `fpv-audio-pairing`. Barlow and Barl
 - [Client-only website investigation](docs/BROWSER_FEASIBILITY.md): local JSON/files, browser processing, large-video limits and the recommended separate browser edition.
 - [Project plan](PROJECT_PLAN.md): implemented scope and remaining work.
 
-The repository is private: [RDubzUK/propnutz-flight-sync](https://github.com/RDubzUK/propnutz-flight-sync). Invited collaborators can clone it; other testers need a source ZIP shared by the owner. Videos, session data, caches and exports are excluded from Git.
+The repository is public: [RDubzUK/propnutz-flight-sync](https://github.com/RDubzUK/propnutz-flight-sync). Anyone can clone it or download a release source ZIP. Videos, session data, caches and exports are excluded from Git.
 
 ## Quick start
 
