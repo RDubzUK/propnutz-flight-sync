@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fpv-audio-pairing"
-version = "0.1.2"
+version = "0.2.0"
 description = "Audio fingerprint matching and aligned exports for FPV and StickCam recordings"
 requires-python = ">=3.11"
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "numpy>=1.26,<3", "scipy>=1.12,<2"]

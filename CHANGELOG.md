@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.0 — 7 October 2026
+
+- Add a dedicated Find StickCam counterpart section with an FPV recording picker, audio sampling control, progress/cancel display and ranked StickCam candidates.
+- Search exactly one FPV recording against all readable audio-bearing StickCam recordings, independently of the general matching scope and seed percentage.
+- Reuse session fingerprints and preserve matches for other FPV recordings; save the last counterpart search in session JSON.
+- Show confirmed matches and audio candidates alongside clearly labelled learned timestamp suggestions. Review opens the existing synchronized preview and export workflow.
+- Show missing-audio/scan requirements and extraction failures explicitly.
+- Report the installed package version through the system API.
+
 ## v0.1.2 — 7 October 2026
 
 - Serialize session-list reads with background JSON saves, fixing an internal read/write race that can prevent replacing an open file on Windows.

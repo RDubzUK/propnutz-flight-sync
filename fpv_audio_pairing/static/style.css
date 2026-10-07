@@ -84,6 +84,8 @@ progress{width:100%;height:12px;accent-color:var(--blue)}
 .pair-table th{text-align:left;color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase}
 .pair-table td,.pair-table th{padding:10px;border-bottom:1px solid var(--line)}.pair-table td{overflow-wrap:anywhere}
 .pair-table tr.active{background:#163044}.pair-table .names{max-width:360px}
+.counterpart-picker{flex:1 1 380px;max-width:100%}.counterpart-picker select{max-width:100%}
+.counterpart-results{overflow-x:auto}
 .badge{display:inline-block;font-size:11px;padding:3px 7px;background:#25332b;white-space:nowrap}
 .badge.strong,.badge.confirmed{color:var(--green);background:#233c33}.badge.timestamp{color:#b2d9ff;background:#1a3447}.badge.weak{color:var(--red)}
 .inner{margin-top:14px;background:transparent;border:1px solid var(--line)}.inner summary{font:600 14px/1.5 var(--body);text-transform:none;padding:12px 16px;letter-spacing:0}

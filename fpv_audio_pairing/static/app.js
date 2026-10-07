@@ -14,6 +14,7 @@ function rememberSession(id) {
 }
 let sid = rememberedSession(), doc, pairId, selected = new Set(), renderKey = '', sessionKey = '', exportKey = '';
 let token = 0, playing = false, loading = false, traces = {}, browsing = '', pollBusy = false;
+let counterpartId = null, counterpartKey = '';
 const fpv = $('fpv-player'), stick = $('stick-player');
 const playRequests = new Map();
 let playIntent = 0;
@@ -62,8 +63,11 @@ function requestPlayback(video) {
 function clearReview() { token++; pause(); releaseAllPreviews(); for (const v of [fpv,stick]) { v.removeAttribute('src'); v.load(); } pairId = null; traces={}; $('review').hidden=true; }
 async function chooseSession(id) {
   clearReview(); sid=id; selected.clear(); renderKey=''; sessionKey=''; rememberSession(id);
+  counterpartId=null; counterpartKey='';
   doc=await api(`/api/sessions/${id}`); $('rename-name').value=doc.name;
   $('modified-kind').value=doc.modified_kind || 'end'; $('filenames').checked=doc.use_filenames !== false;
+  $('counterpart-boundary').value=String(doc.counterpart_search?.boundary || 30);
+  if (!$('counterpart-boundary').value) $('counterpart-boundary').value='30';
   render(); await refreshSessions();
 }
 async function refreshSessions() {
@@ -80,17 +84,68 @@ function list(kind) {
   }).join('') || '<div class="empty">No recordings found in this folder.</div>';
 }
 function selectionLabel() { $('selection-count').textContent=`${selected.size} selected`; }
+function rankedPairs(pairs) {
+  const rank=p=>p.confirmed?0:p.confidence==='Strong'?1:p.method==='timestamp'?3:2;
+  return [...pairs].sort((a,b)=>rank(a)-rank(b)||(b.score||0)-(a.score||0));
+}
+function renderPairList(target, pairs, {stickOnly=false, empty='No candidate pairs yet.'} = {}) {
+  $(target).innerHTML=pairs.length?`<table class="pair-table"><thead><tr><th>${stickOnly?'StickCam recording':'Recordings'}</th><th>Evidence</th><th>Common footage</th><th></th></tr></thead><tbody>${pairs.map(p=>{
+    const sections=p.evidence?.sections;
+    const fpvName=escape(record(p.fpv)?.name || 'Missing FPV file');
+    const stickName=escape(record(p.stick)?.name || 'Missing StickCam file');
+    const names=stickOnly?`<strong>${stickName}</strong>`:`<strong>${fpvName}</strong><br>${stickName}`;
+    return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names">${names}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.score!=null?`<br><small>Evidence ${Math.round(p.score*100)}/100</small>`:''}${sections?`<br><small>${sections.correlated_sections}/${sections.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;
+  }).join('')}</tbody></table>`:`<div class="empty">${escape(empty)}</div>`;
+  $(target).querySelectorAll('[data-pair]').forEach(button=>button.onclick=()=>openPair(button.dataset.pair,{scrollToPreview:true}).catch(error=>notice(error.message,true)));
+}
+function renderCounterpart() {
+  const fpvs=doc.videos.filter(r=>r.kind==='fpv'), job=doc.job || {}, last=doc.counterpart_search;
+  const active=['queued','running'].includes(job.status);
+  if (counterpartId===null) counterpartId=(job.title==='Finding StickCam counterpart'?job.target_fpv:null) || last?.fpv || '';
+  if (!fpvs.some(r=>r.id===counterpartId)) counterpartId='';
+  const source=record(counterpartId), metadata=source?.metadata;
+  const sticks=doc.videos.filter(r=>r.kind==='stick' && r.metadata?.has_audio && !r.error);
+  const readable=Boolean(metadata?.has_audio && !source.error);
+  const pairs=rankedPairs(doc.pairs.filter(p=>p.fpv===counterpartId));
+  const errors=last?.fpv===counterpartId?(last.errors || []):[];
+  const key=JSON.stringify([sid,counterpartId,fpvs,pairs,errors,last?.fpv===counterpartId?last:null]);
+  if (key!==counterpartKey) {
+    counterpartKey=key;
+    $('counterpart-fpv').innerHTML='<option value="">Choose an FPV recording…</option>'+fpvs.map(r=>`<option value="${r.id}">${escape(`${r.name} · ${duration(r.metadata?.duration)}${r.metadata?(r.metadata.has_audio?' · audio':' · no audio'):''}`)}</option>`).join('');
+    $('counterpart-fpv').value=counterpartId;
+    const empty=!source?'Choose an FPV recording to see its candidates.':last?.fpv===counterpartId?'No candidates found. Try sampling more audio, or align a known pair manually.':'No saved candidates for this FPV recording. Run the search to look for its counterpart.';
+    renderPairList('counterpart-results',pairs,{stickOnly:true,empty});
+    $('counterpart-errors').innerHTML=errors.map(error=>`<p class="hint error">${escape(error)}</p>`).join('');
+  }
+  $('counterpart-fpv').disabled=active || !fpvs.length;
+  $('counterpart-boundary').disabled=active;
+  $('counterpart-find').disabled=active || !readable || !sticks.length;
+  $('counterpart-info').textContent=source?`${duration(metadata?.duration)} · FPV audio ${metadata?(metadata.has_audio?'✓':'✕'):'not scanned'} · ${sticks.length} StickCam recordings with readable audio`:'Only this FPV recording is searched against the session’s StickCam recordings.';
+  const thisJob=job.title==='Finding StickCam counterpart' && job.target_fpv===counterpartId;
+  let status='Choose a recording, then find its StickCam counterpart. Saved fingerprints are reused.';
+  if (source) {
+    if (thisJob && active) status='Searching this FPV recording against all audio-bearing StickCam recordings…';
+    else if (thisJob && ['failed','cancelled','interrupted'].includes(job.status) && job.started>=(last?.completed || 0)) status=`Search ${job.status}. Any previous saved candidates are shown below.`;
+    else if (last?.fpv===counterpartId) status=`Last search: ${last.stick} StickCam recordings checked · ${last.candidates} audio candidate${last.candidates===1?'':'s'}. Review the shortlist to confirm an alignment.`;
+    else if (pairs.length) status=`${pairs.length} saved candidate${pairs.length===1?'':'s'} for this FPV recording. Review one now or search again.`;
+    if (!metadata || source.error) status='Wait for scanning to finish, or rescan this recording before searching.';
+    else if (!metadata.has_audio) status='This FPV recording has no audio track. Review any saved timestamp suggestions below or align a known pair manually.';
+    else if (!sticks.length) status='No StickCam recordings with readable audio are available. Check the source folder and rescan.';
+  }
+  $('counterpart-status').textContent=status;
+}
 function render() {
   if (!doc) return;
   $('workspace').hidden=false; $('sources-section').hidden=true; $('session-controls').hidden=false;
   const job=doc.job || {}, active=['queued','running'].includes(job.status);
-  const jobHost=job.title==='Finding matching flights' ? $('match-progress') : $('job-location');
+  const jobHost=job.title==='Finding StickCam counterpart' ? $('counterpart-progress') : job.title==='Finding matching flights' ? $('match-progress') : $('job-location');
   if ($('job').parentElement!==jobHost) jobHost.append($('job'));
   $('job').hidden=!job.status; $('job-title').textContent=`${job.title || 'Task'} · ${job.status || ''}`;
   $('job-percent').textContent=`${job.percent || 0}%`; $('job-progress').value=job.percent || 0;
   $('job-message').textContent=job.message || ''; $('job-timing').textContent=`Elapsed ${duration(job.elapsed)}${job.eta!=null&&active?` · Estimated remaining ${duration(job.eta)}`:''}`;
   $('cancel').hidden=!active; ['find','rescan','delete','confirm','unconfirm','apply-offset','manual-add','export','filenames','modified-kind'].forEach(id=>$(id).disabled=active);
-  const key=JSON.stringify([doc.videos,doc.pairs,doc.clocks,doc.clock_warnings,doc.match_summary,doc.match_errors]);
+  renderCounterpart();
+  const key=JSON.stringify([doc.videos,doc.pairs,doc.clocks,doc.clock_warnings,doc.match_summary,doc.match_errors,doc.counterpart_search]);
   if (key === renderKey) return; renderKey=key;
   const existing=new Set(doc.videos.map(r=>r.id)); selected=new Set([...selected].filter(id=>existing.has(id)));
   $('video-count').textContent=`${doc.videos.filter(r=>r.kind==='fpv').length} FPV · ${doc.videos.filter(r=>r.kind==='stick').length} StickCam`;
@@ -101,11 +156,9 @@ function render() {
   $('clock-info').innerHTML+=(doc.clock_warnings||[]).map(w=>`<p class="error">${escape(w)}</p>`).join('');
   const ms=doc.match_summary; $('match-summary').textContent=ms?`Compared ${ms.fpv} FPV clips against ${ms.stick} StickCam clips (${ms.comparisons} comparisons). ${ms.candidates} audio candidates. Scores measure evidence strength, not a match probability.`:'';
   $('match-errors').innerHTML=(doc.match_errors||[]).map(e=>`<p class="hint error">${escape(e)}</p>`).join('');
-  const rank=p=>p.confirmed?0:p.confidence==='Strong'?1:p.method==='timestamp'?3:2;
-  const pairs=[...doc.pairs].sort((a,b)=>rank(a)-rank(b)||(b.score||0)-(a.score||0));
+  const pairs=rankedPairs(doc.pairs);
   $('pair-count').textContent=`${pairs.length} candidates · ${pairs.filter(p=>p.confirmed&&!p.stale).length} confirmed`;
-  $('pairs-list').innerHTML=pairs.length?`<table class="pair-table"><thead><tr><th>Recordings</th><th>Evidence</th><th>Common footage</th><th></th></tr></thead><tbody>${pairs.map(p=>{const e=p.evidence?.sections;return `<tr data-pair-row="${p.id}" class="${p.id===pairId?'active':''}"><td class="names"><strong>${escape(record(p.fpv)?.name || 'Missing FPV file')}</strong><br>${escape(record(p.stick)?.name || 'Missing StickCam file')}</td><td><span class="badge ${p.confirmed?'confirmed':p.method==='timestamp'?'timestamp':p.confidence.toLowerCase()}">${p.stale?'Source changed':p.confirmed?'Confirmed':escape(p.confidence)}</span>${p.score!=null?`<br><small>Evidence ${Math.round(p.score*100)}/100</small>`:''}${e?`<br><small>${e.correlated_sections}/${e.usable_sections} agreeing sections</small>`:''}${p.method==='timestamp'?`<br><small>${p.clock_method} dates · review required</small>`:''}</td><td>${duration(p.overlap_duration)}<br><small>FPV ${fmt(p.fpv_start)}<br>StickCam ${fmt(p.radio_start)}</small></td><td><button data-pair="${p.id}" ${p.stale?'disabled':''}>Review</button></td></tr>`;}).join('')}</tbody></table>`:'<div class="empty">Run audio matching to find candidate pairs, or choose a known pair manually below.</div>';
-  document.querySelectorAll('[data-pair]').forEach(b=>b.onclick=()=>openPair(b.dataset.pair,{scrollToPreview:true}).catch(e=>notice(e.message,true)));
+  renderPairList('pairs-list',pairs,{empty:'Run audio matching to find candidate pairs, or choose a known pair manually below.'});
   if (pairId && !currentPair()) clearReview(); else if(pairId)updateReview();
   renderExports(doc.exports||[], 'exports');
 }
@@ -228,6 +281,13 @@ action('cancel',async()=>{const r=await post(`/api/sessions/${sid}/cancel`);noti
 action('delete',async()=>{await api(`/api/sessions/${sid}`,{method:'DELETE'});$('new-session').click();notice('Session data removed. Original recordings and exports are kept.');sessionKey='';await refreshSessions();await refreshExports();});
 action('clear-selection',()=>{selected.clear();document.querySelectorAll('[data-video]').forEach(i=>i.checked=false);selectionLabel();});
 action('find',async()=>{if(!sid)return;const scope=document.querySelector('input[name="scope"]:checked').value;if(scope==='selected'&&!selected.size)throw new Error('Select at least one recording in the video lists.');await post(`/api/sessions/${sid}/match`,{selected:scope==='selected'?[...selected]:[],fraction:Number($('fraction').value),boundary:Number($('boundary').value),use_filenames:$('filenames').checked,modified_kind:$('modified-kind').value,min_overlap:2});await poll();});
+$('counterpart-fpv').onchange=event=>{counterpartId=event.target.value;counterpartKey='';renderCounterpart();};
+action('counterpart-find',async()=>{
+  if (!sid || !counterpartId) throw new Error('Choose an FPV recording first.');
+  await post(`/api/sessions/${sid}/counterpart`,{fpv:counterpartId,boundary:Number($('counterpart-boundary').value)});
+  $('counterpart-section').open=true;
+  await poll();
+});
 async function saveClockSettings(){if(!sid)return;try{doc=await api(`/api/sessions/${sid}/clocks`,{method:'PATCH',body:JSON.stringify({use_filenames:$('filenames').checked,modified_kind:$('modified-kind').value})});renderKey='';render();}catch(e){notice(e.message,true);}}
 $('filenames').onchange=saveClockSettings;$('modified-kind').onchange=saveClockSettings;
 action('manual-add',async()=>{const f=$('manual-fpv').value,s=$('manual-stick').value;if(!f||!s)throw new Error('Wait for scanning, then choose one video of each type');doc=await post(`/api/sessions/${sid}/pairs`,{fpv:f,stick:s,offset:Number($('manual-offset').value),confirmed:false});renderKey='';render();await openPair(doc.pairs.find(p=>p.fpv===f&&p.stick===s).id);});

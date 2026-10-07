@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
@@ -90,13 +91,15 @@ def idle(sid):
             raise HTTPException(409, "A task is already running for this session")
 
 
-def task(sid, title, work):
+def task(sid, title, work, *, target_fpv=None):
     with ACTIVE:
         idle(sid)
         flag = threading.Event()
         start = time.time()
         job = {"status": "queued", "title": title, "message": "Waiting for the processing queue", "percent": 0,
                "started": start, "elapsed": 0, "eta": None}
+        if target_fpv is not None:
+            job["target_fpv"] = target_fpv
         store.update(sid, lambda s: s.update(job=job))
         FLAGS[sid] = flag
         TASK_SAVE_ERRORS.pop(sid, None)
@@ -237,7 +240,7 @@ class MatchOptions(BaseModel):
     modified_kind: str = "end"
 
 
-def find(sid, options, progress, flag):
+def find(sid, options, progress, flag, *, counterpart_fpv=None):
     s = session(sid)
     records = [r for r in s["videos"] if r.get("metadata", {}).get("has_audio") and not r.get("error")]
     fpvs, sticks = [[r for r in records if r["kind"] == k] for k in ("fpv", "stick")]
@@ -309,13 +312,18 @@ def find(sid, options, progress, flag):
                    use_filenames=options.use_filenames, modified_kind=options.modified_kind,
                    min_overlap=options.min_overlap, match_errors=failures,
                    match_summary={"comparisons": done, "candidates": len(candidates), "fpv": len(fpvs), "stick": len(sticks)})
+        if counterpart_fpv is not None:
+            doc["counterpart_search"] = {
+                "fpv": counterpart_fpv, "completed": time.time(), "boundary": options.boundary,
+                "comparisons": done, "candidates": len(candidates), "stick": len(sticks), "errors": failures,
+            }
         matching.suggest(doc)
     store.update(sid, save)
 
 
 @app.get("/api/system")
 def system():
-    return {"name": "PropNutz Flight Sync", "version": "0.1.0", "ffmpeg": bool(shutil.which("ffmpeg")),
+    return {"name": "PropNutz Flight Sync", "version": version("fpv-audio-pairing"), "ffmpeg": bool(shutil.which("ffmpeg")),
             "ffprobe": bool(shutil.which("ffprobe")), "data": str(store.ROOT)}
 
 
@@ -418,6 +426,34 @@ def match(sid: str, options: MatchOptions):
     if options.modified_kind not in {"start", "end"}:
         raise HTTPException(400, "Modified dates must represent recording start or end")
     return task(sid, "Finding matching flights", lambda update, flag: find(sid, options, update, flag))
+
+
+class CounterpartOptions(BaseModel):
+    fpv: str
+    boundary: float = Field(default=30, ge=10, le=300)
+
+
+@app.post("/api/sessions/{sid}/counterpart")
+def counterpart(sid: str, options: CounterpartOptions):
+    idle(sid)
+    source = video(sid, options.fpv)
+    if source["kind"] != "fpv":
+        raise HTTPException(400, "Choose an FPV recording to find its StickCam counterpart")
+    if not source.get("metadata") or source.get("error"):
+        raise HTTPException(400, "Rescan this recording before searching for its counterpart")
+    if not source["metadata"].get("has_audio"):
+        raise HTTPException(400, "This FPV recording has no audio track. Review any saved timestamp suggestions or align a pair manually.")
+    current = session(sid)
+    if not any(r["kind"] == "stick" and r.get("metadata", {}).get("has_audio") and not r.get("error")
+               for r in current["videos"]):
+        raise HTTPException(400, "This session has no StickCam recordings with readable audio. Check the folders and rescan.")
+    match_options = MatchOptions(selected=[source["id"]], fraction=1, boundary=options.boundary,
+                                 use_filenames=current.get("use_filenames", True),
+                                 modified_kind=current.get("modified_kind", "end"),
+                                 min_overlap=current.get("min_overlap", 2))
+    return task(sid, "Finding StickCam counterpart",
+                lambda update, flag: find(sid, match_options, update, flag, counterpart_fpv=source["id"]),
+                target_fpv=source["id"])
 
 
 class PairOptions(BaseModel):

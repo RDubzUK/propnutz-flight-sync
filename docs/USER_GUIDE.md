@@ -32,6 +32,19 @@ Matching caches extracted audio fingerprints and reuses them on subsequent searc
 
 The shortlist combines spectral landmarks and independent audio trends at one proposed offset. A strong label requires several independent agreeing sections and separation from competing candidates. **Evidence scores are not percentages of certainty.** No candidate is automatically confirmed.
 
+### Find a StickCam counterpart for one FPV recording
+
+Use the dedicated **Find StickCam counterpart** section between matching and pair review:
+
+1. Choose the FPV recording by filename; its duration and audio availability are shown.
+2. Choose how much audio to sample from each end, starting at 30 seconds.
+3. Click **Find StickCam counterpart**. It searches only that FPV clip against all readable audio-bearing StickCam recordings, regardless of list selections or the seed percentage in the general matcher.
+4. Follow progress and cancellation in this section. Saved fingerprints are reused.
+5. Review the ranked StickCam candidates. Confirmed pairs appear first, then audio candidates; existing learned timestamp suggestions remain clearly labelled.
+6. Click **Review** to scroll to the synchronized preview, adjust the offset if needed and confirm the pair. Exports use the normal aligned-export section.
+
+The most recent counterpart search is saved with the session. Searching one FPV recording preserves matches for other FPV recordings. If no useful audio match is found, increase the sampled range. A clip without an audio track cannot be searched by audio; existing clock suggestions and manual alignment remain available. A candidate is never confirmed automatically.
+
 ## 4. Review the pair
 
 Click **Review** to scroll to the synchronized players. Use **Play together**, pause, shared seek, slow playback and the audio selector. The players show the original timestamps and stay within the shared footage interval.

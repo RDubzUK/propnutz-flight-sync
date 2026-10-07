@@ -13,6 +13,7 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 - Collapsible panels; creation panel hidden after choosing a session.
 - Two video lists with durations and status tables for audio, saved fingerprints and filename timestamps.
 - All/selected/seed matching scopes and cached boundary audio fingerprints.
+- Dedicated Find StickCam counterpart workflow: one FPV recording against all audio-bearing StickCam recordings, with local progress, saved search summary and ranked review links.
 - Distinctive spectral matching with independent, same-offset audio trend checks and repeated-section evidence.
 - Several candidate StickCam owners per FPV clip, without forcing a one-to-one relationship.
 - Synchronized two-video review, audio feed selection, slow playback and editable alignment.

@@ -7,7 +7,7 @@
   const timer = setTimeout(() => {
     status.textContent = 'Flight Sync is taking longer than expected to start. Reload this page; if this persists, update and restart the app.';
   }, 15000);
-  import('./app.js?v=6').then(() => {
+  import('./app.js?v=7').then(() => {
     clearTimeout(timer);
     status.hidden = true;
     for (const control of controls) control.disabled = false;
