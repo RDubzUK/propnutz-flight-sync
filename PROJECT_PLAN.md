@@ -8,6 +8,9 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 
 ## Implemented scope
 
+- Simple interface by default, with the core matching/review/export workflow and automatic audio/export settings. Browser-local Expert preference exposes technical controls without changing session data.
+- Selected-StickCam split-flight timeline and synchronized preview, including StickCam-only gaps and conflicting alternatives. Prevent overlapping split-part confirmations/group exports; retain original offsets for correction.
+
 - Independent package, environment, local data and port 8768.
 - Folder browsing, mounted shares, named sessions, rename/delete and folder rescan.
 - Collapsible panels; creation panel hidden after choosing a session.
@@ -20,7 +23,7 @@ A minimal end-to-end workflow from two source folders to reviewed audio matches 
 - Saved audio trends with matching sections and a playback cursor.
 - User-confirmed clock anchors, end/start modification date interpretation and optional filename timestamps.
 - Timestamp suggestions for other clips and split FPV parts, with inconsistent/repeated clock handling.
-- Show modified-date corroboration on audio/manual candidates, contributing confirmed pairs and independent-flight counts. All reviewed confirmation methods teach the clock; date signals never confirm a match automatically.
+- Show modified-date corroboration on audio/manual candidates, contributing independently verified anchors and independent-flight counts. Date-only confirmations require a separate content check before teaching the clock; date signals never confirm a match automatically.
 - Include modified dates explicitly in Pair Review evidence and the selected preview, with predicted offsets, tolerance, contributing pair filenames and refresh of older session evidence on load.
 - Manual alignment when audio is unavailable.
 - Confirmed-pair exports of the common interval: fast stream-copy cuts with edit lists, accurate trimming, original source cadence by default, optional fixed-rate conversion, measured timing and streamed ZIP download.
@@ -37,9 +40,25 @@ No radio detection, gimbal calibration, stick tracking, gyro extraction, derived
 
 The user reviews content evidence and shared playback before confirming an alignment. Timestamp suggestions are never presented as verified audio matches. Export timing depends on that reviewed alignment. Missing/unusable audio remains visible and supports manual alignment rather than an invented match.
 
-## Possible later work
+## Local reliability milestone (0.4.0)
 
-- A measured audio benchmark built from user-confirmed flights to tune confidence thresholds.
-- Piecewise clock models for camera clock drift or mid-session clock resets.
-- Resumable export jobs and finer per-encoder progress.
-- Standalone desktop packaging if requested after the simpler workflow is established.
+- Durable reject/review-later/no-counterpart decisions, review filters, next-candidate navigation and completion counts.
+- Adaptive 30/60/120/300-second boundary retries for unresolved audio, cached per-recording comparisons and restart/cancel resume.
+- Modified-date agreement defaults to ±5 seconds, configurable from 1–10 seconds through the API (UI offers 2/5/10). Filename agreement remains ±2 seconds. Dates never invalidate a content match.
+- Independently entered source-event checkpoints, individual playback and constant-offset/drift warnings. Exports with conflicting checkpoints require explicit acknowledgement; no automatic speed changes.
+- Label matching/non-matching reference pairs, optionally record a measured offset, run the current policy against those known answers, and download a measured report. Identity-only labels do not establish timing accuracy.
+- Group split FPV parts on the StickCam timeline, show confirmed gaps/overlaps/conflicting owners, export flight parts together and include a flight manifest.
+- Save/open JSON or bounded fingerprint bundles, stable recording IDs, content-assisted relinking and retained original camera dates.
+- Ten automatic metadata backups, explicit recovery, preserved pre-restore JSON, and an instance lock for the app's data folder.
+- Resume completed export pairs after checking their timing/inputs, per-source FFmpeg progress, optional decoded start/middle/end cut comparisons.
+- Bounded MP4 edit-list presentation ends; disable generated timecode tracks that distort durations on the local FFmpeg build.
+- Locked cross-platform launchers, a Windows prerequisite setup script, local diagnostics and path-redacted support reports.
+
+See [the milestone scope](docs/RELIABILITY_PLAN.md) and [validation guide](docs/VALIDATION.md).
+
+## Remaining empirical work
+
+- Build a larger, independently labelled real-flight collection to measure errors before tuning confidence thresholds. A known same-flight pair can still fail the conservative Strong gates; report it as a missed match.
+- Actual Windows/macOS, GPU driver, 10–40-flight performance and DaVinci Resolve acceptance must be measured on those machines. Local generated fixtures do not establish those results.
+- Mid-session camera resets may require separate sessions; segmented clock models are not implemented.
+- The public browser-only PropNutz edition is excluded from this milestone.

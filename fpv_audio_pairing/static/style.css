@@ -66,6 +66,8 @@ button:disabled{opacity:.45;cursor:wait}
 .sessions{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:12px 0}
 .session-card{text-align:left;padding:15px;border:1px solid var(--line);font-size:14px;letter-spacing:0;background:#111411}
 .session-card.active{border-left:3px solid var(--blue);background:#163044}
+.session-thumbnail{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#090d09;overflow:hidden;margin-bottom:12px;color:var(--muted);font-size:12px}
+.session-thumbnail img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover}
 .session-card strong{display:block;overflow-wrap:anywhere}.session-card small{display:block;margin-top:5px}
 .job{background:#152731;padding:18px;border:1px solid #3b5b69;border-top:3px solid var(--blue);margin-bottom:20px}
 .job .row{margin:0 0 10px;align-items:center}.job strong{flex:1}
@@ -120,3 +122,34 @@ dialog::backdrop{background:#000b}.dialog-heading{display:flex;align-items:start
 @media(max-width:760px){.header-inner{min-height:84px;padding:14px 0;gap:18px;flex-wrap:wrap}.wordmark{font-size:32px}.tool-identity{padding-left:18px;flex:1}.tool-identity strong{font-size:22px}.tool-identity>span{font-size:11px}.community-link{display:none}main{padding-top:20px}.intro{padding:24px;align-items:start;flex-direction:column;gap:8px;min-height:0}.intro:after{background:linear-gradient(90deg,#111311ef,#1113117d),linear-gradient(0deg,#111311dd,transparent)}h1{font-size:58px}.eyebrow{font-size:9px;letter-spacing:.12em}.intro>button{align-self:flex-start}.columns{grid-template-columns:1fr}summary{padding:14px;font-size:25px}summary small{display:block;margin-left:22px;font-size:11px}.section-index{margin-right:8px;font-size:9px}.content{padding:0 14px 18px}.pair-table th:nth-child(3),.pair-table td:nth-child(3){display:none}.pair-table td,.pair-table th{padding:7px}.review-title{display:block}.review-title label{max-width:260px}.row{gap:8px}.players video{max-height:350px}dialog{padding:15px}#folder-entries{max-height:42vh}.site-footer{align-items:start}.site-footer>div{max-width:75%}.workflow-strip{gap:18px}}
 @media(max-width:420px){.header-inner,main{width:calc(100% - 28px)}.header-inner{gap:12px}.wordmark{font-size:29px}.tool-identity{padding-left:12px}.tool-identity strong{font-size:21px}.tool-identity>span{font-size:10px}h1{font-size:52px}.intro{padding:20px}.workflow-strip{gap:14px}summary{font-size:23px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+.review-summary { padding: 14px; margin: 0 0 16px; background: var(--panel, #202420); border-left: 3px solid #b5e22c; font-weight: 600; }
+.flight-card { margin: 16px 0; padding: 18px; border: 1px solid #3d443d; border-radius: 8px; }
+.flight-timeline { position: relative; height: 48px; margin: 16px 0; background: #101510; border-radius: 4px; overflow: hidden; }
+.flight-part { position: absolute; top: 4px; height: 40px; padding: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: #586149; border-radius: 3px; font-size: .75rem; }
+.flight-part.confirmed { background: #72962c; color: #fff; }
+.flight-part.later { background: #796a2c; }
+.flight-part-row, .unmatched-row, .reference-row, .checkpoint-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #343b34; overflow-wrap: anywhere; }
+.flight-part-row span, .unmatched-row span, .reference-row span { min-width: 0; }
+.flight-part-row small, .unmatched-row small, .reference-row small { display: block; }
+.flight-part-row button, .unmatched-row button, .reference-row button { flex-shrink: 0; }
+#diagnostics-results, #relink-report { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow: auto; }
+a.button { display: inline-block; padding: 9px 14px; border: 1px solid #465046; border-radius: 4px; text-decoration: none; }
+.project-actions { margin-bottom: 14px; }
+body[data-interface="simple"] .expert-only, body[data-interface="expert"] .simple-only { display: none !important; }
+.intro-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; position: relative; z-index: 1; }
+.intro-actions label { min-width: 160px; }.intro-actions small { max-width: 260px; text-align: right; color: var(--muted); }
+.current-sources { white-space: pre-line; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); margin: 12px 0; }
+.video-lists > div { max-height: 440px; overflow-y: auto; padding-right: 6px; }
+.video-lists > div > h3 { position: sticky; top: 0; background: var(--panel); z-index: 1; padding: 6px 0; }
+body[data-interface="simple"] .match-columns { grid-template-columns: 1fr; }
+body[data-interface="simple"] .pair-table .pair-evidence { display: none; }
+.flight-time-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.flight-timeline { border: 1px solid var(--line); cursor: pointer; }
+.flight-part { top: 4px; height: 40px; background: #285572; border: 1px solid #4a86a9; padding: 4px; min-width: 0; }
+.flight-part.confirmed { background: #355e39; border-color: #6aa979; }
+.flight-cursor { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--text); pointer-events: none; z-index: 2; }
+.flight-candidate-list { max-height: 280px; overflow-y: auto; padding-right: 6px; margin-bottom: 14px; }
+.flight-conflict { border-left: 3px solid var(--red); padding-left: 12px; }
+#flight-seek { padding: 0; height: 24px; accent-color: var(--blue); }
+@media(max-width:760px) { .intro-actions { align-items: flex-start; }.intro-actions small { text-align: left; }.intro-actions label { min-width: 200px; } }
+@media (max-width: 650px) { .flight-part-row, .unmatched-row, .reference-row, .checkpoint-row { flex-wrap: wrap; } }

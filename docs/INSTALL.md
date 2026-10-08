@@ -69,7 +69,7 @@ uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
 
 uv creates a project-specific `.venv` and installs dependencies from `uv.lock`. First installation needs internet access; once installed, branding, processing and the app run locally. Open **http://localhost:8768/**. Keep the terminal open; press Ctrl+C to stop.
 
-On Linux/macOS, `./start.sh --host 127.0.0.1` is an alternative launcher. Run `chmod +x start.sh` if a ZIP extraction lost its executable permission. The launcher's first-time pip install does not enforce `uv.lock`, so run `uv sync --frozen --python 3.11` first for the documented dependency versions.
+On Linux/macOS, `./start.sh` installs the locked dependencies and opens the local interface. Run `chmod +x start.sh` if a ZIP extraction lost its executable permission. For LAN access use `./start.sh --host 0.0.0.0`. On Windows, double-click `start.cmd` after prerequisites are installed, or run `./start.ps1`; `./start.ps1 -Lan` enables LAN access. Keep the launcher terminal open.
 
 ## LAN access
 
@@ -122,7 +122,7 @@ git pull --ff-only
 uv sync --frozen --python 3.11
 ```
 
-Restart using the command or service above. Repository tags preserve the pre-investigation snapshot and documented release. Source, `.venv` and data serve different purposes: source and `uv.lock` recreate the program; `data/` restores sessions, cached fingerprints and exports. Keep source videos separately too. Existing session files contain their original absolute paths, so moving to a different machine may require creating a new session using the new paths. JSON import/relink is not implemented in this local version.
+Restart using the command or service above. Source, `.venv` and data serve different purposes: source and `uv.lock` recreate the program; `data/` restores sessions, cached fingerprints and export history. Back up chosen export folders and source videos separately too. To move review work to another machine, save a project JSON or fingerprint bundle, open it there, then relink both source folders. See the user guide for identity checks and retained camera dates.
 
 ## Troubleshooting
 
@@ -139,8 +139,8 @@ Restart using the command or service above. Repository tags preserve the pre-inv
 | No recordings found | Choose folders with supported video files or tick Include subfolders. Recursive source folders must not contain one another. |
 | Browser cannot play the original | Use 480p fragments on demand; current Chrome/Edge support the required H.264 Media Source playback. |
 | Few or no audio candidates | Increase sampled audio from each end or align a known pair manually; audio presence is not evidence of useful sound. |
-| Exports take time or fail for lack of disk space | They encode full-resolution originals. DNxHR is substantially larger; use H.264 or a shorter common interval. |
-| A task says interrupted after restart | Run it again; saved fingerprints are reused. |
+| Exports take time or fail for lack of disk space | Fast trim copies original streams; accurate trims encode them. Check the selected format and output storage. DNxHR is substantially larger; use fast trim, H.264 or a shorter interval as appropriate. |
+| A task says interrupted after restart | Use Resume saved task; saved fingerprints, completed comparisons and checked export pairs are reused. |
 
 See the [user guide](USER_GUIDE.md) for the matching workflow and timing conventions.
 
@@ -176,3 +176,26 @@ uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
 ```
 
 This selects that folder's sessions; it does not migrate existing sessions automatically. To preserve existing work, stop the app and copy the old data folder's contents there first, as described above, and ensure the copied JSON files are writable. Set the same environment value on subsequent launches.
+
+## Windows guided prerequisite setup
+
+From the extracted project folder, run:
+
+```powershell
+.\setup-windows.ps1
+```
+
+This uses Microsoft's winget registry to install missing `astral-sh.uv` and `Gyan.FFmpeg`, refreshes the shell PATH, installs the locked app dependencies and opens the browser. Package prompts remain visible. If PowerShell blocks scripts, use the documented manual prerequisite commands and `start.cmd`; no permanent execution-policy change is necessary. Package identifiers are documented in Microsoft's [uv manifest](https://github.com/microsoft/winget-pkgs/tree/master/manifests/a/astral-sh/uv) and [FFmpeg manifest](https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/Gyan/FFmpeg). The script is supplied, but has not been executed on Windows in the Linux acceptance run.
+
+## Diagnostics and recovery
+
+```bash
+uv run --frozen fpv-audio-pairing --check
+uv run --frozen fpv-audio-pairing --data-dir /path/to/writable/data --host 127.0.0.1 --open
+```
+
+The data folder is protected by an instance lock. Close the other app process before reusing it; do not remove the lock file while that process runs. Separate installations may use separate `--data-dir` folders.
+
+Use **Installation & diagnostics** for a local support report (tool versions, permissions, free disk and available preview decoders; no automatic upload). After an interrupted task, use **Resume saved task**. Search comparisons/fingerprints and completed export pairs are reused; the incomplete current pair is regenerated. Export resume requires the original source signatures, alignments and output folder.
+
+For corrupt session JSON, the app offers its latest readable backup without silently overwriting the corrupt file. Open the recovery panel, show backups, choose one and restore. The prior JSON is saved as `before-restore-*.json`. Restore metadata only; source videos and independent export history are kept. See the user guide for portable JSON/fingerprint projects.

@@ -5,8 +5,9 @@ import hashlib
 import math
 from collections import Counter
 from statistics import median
+from .review import independently_verified, state
 
-CLOCK_TOLERANCE = 2.0
+CLOCK_TOLERANCE = 2.0  # Filename clocks; file modified dates are less precise.
 
 
 def overlap(fpv_duration, stick_duration, offset):
@@ -57,8 +58,9 @@ def clock_model(session, method):
     records = {r["id"]: r for r in session["videos"]}
     values, anchors = [], []
     kind = session.get("modified_kind", "end")
+    tolerance = session.get("modified_tolerance", 5.0) if method == "modified" else CLOCK_TOLERANCE
     for pair in session["pairs"]:
-        if not pair.get("confirmed") or pair.get("stale"):
+        if not independently_verified(pair):
             continue
         f, s = records.get(pair["fpv"]), records.get(pair["stick"])
         if not f or not s or not math.isfinite(pair["offset"]):
@@ -74,9 +76,9 @@ def clock_model(session, method):
     if not values:
         return None
     centre = median(values)
-    consistent = all(abs(v - centre) <= CLOCK_TOLERANCE for v in values)
+    consistent = all(abs(v - centre) <= tolerance for v in values)
     return {"method": method, "delta": centre, "consistent": consistent, "anchors": anchors,
-            "tolerance": CLOCK_TOLERANCE,
+            "tolerance": tolerance,
             "independent_flights": len({a["stick"] for a in anchors}),
             "tentative": len({a["stick"] for a in anchors}) < 2}
 
@@ -124,7 +126,7 @@ def refresh_clock_evidence(session, models=None):
             fc, sc = clock_start(f, method, session.get("modified_kind", "end")), clock_start(s, method, session.get("modified_kind", "end"))
             if fc is None or sc is None:
                 continue
-            details = {"method": method, "tolerance": CLOCK_TOLERANCE,
+            details = {"method": method, "tolerance": model["tolerance"],
                        "independent_flights": model["independent_flights"], "tentative": model["tentative"],
                        "anchors": [a["pair"] for a in model["anchors"]], "clock_delta": model["delta"],
                        "modified_difference": s["mtime"] - f["mtime"],
@@ -138,7 +140,7 @@ def refresh_clock_evidence(session, models=None):
             expected = model["delta"] + fc - sc
             difference = pair["offset"] - expected
             support.append(details | {"status": "available", "expected_offset": expected,
-                                      "alignment_difference": difference, "agrees": abs(difference) <= CLOCK_TOLERANCE})
+                                      "alignment_difference": difference, "agrees": abs(difference) <= model["tolerance"]})
         if support:
             pair["clock_support"] = support
     return session
@@ -150,8 +152,8 @@ def suggest(session):
     models = _clock_models(session)
     session["clock_warnings"] = []
     # Rebuild only clock proposals. Preserve audio evidence and user-confirmed pairs.
-    retained = [p for p in session["pairs"] if p.get("confirmed") or p.get("method") != "timestamp"]
-    known = {p["id"] for p in retained}
+    retained = [p for p in session["pairs"] if p.get("confirmed") or p.get("method") != "timestamp" or state(p) in {"rejected", "later"}]
+    known = {p["id"] for p in retained} | {pid for pid, decision in session.get("decisions", {}).items() if decision == "rejected"}
     records, counts, raw_counts = _clock_data(session)
     for model in models:
         if not model["consistent"]:
@@ -178,5 +180,8 @@ def suggest(session):
                     known.add(pid)
         if repeated:
             session["clock_warnings"].append(f"Repeated {method} timestamps were excluded; these may be reset or copied dates.")
+    for pair in retained:
+        if not pair.get("confirmed"):
+            pair["review_state"] = session.get("decisions", {}).get(pair["id"], state(pair))
     session["pairs"] = retained
     refresh_clock_evidence(session, models)

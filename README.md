@@ -29,7 +29,7 @@ uv sync --frozen --python 3.11
 uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
 ```
 
-Open **http://localhost:8768/**. For LAN access, change the host to `0.0.0.0` and open `http://<server-LAN-IP>:8768/` on another device. The CLI and `start.sh` default to LAN binding; the quick-start command above explicitly chooses local-only access. The original app uses port 8767.
+Open **http://localhost:8768/**. For LAN access, change the host to `0.0.0.0` and open `http://<server-LAN-IP>:8768/` on another device. The CLI defaults to LAN binding; the launchers and quick-start choose local access. Use `./start.sh --host 0.0.0.0` or `start.ps1 -Lan` for a trusted LAN. The original app uses port 8767.
 
 The same `uv sync` and `uv run` commands work in Windows PowerShell, Linux shells and macOS Terminal. If Git is unavailable, download and extract the source ZIP, enter its directory, then run the final two commands. The committed `uv.lock` records dependency versions.
 
@@ -37,12 +37,14 @@ An optional Linux user service is provided in `deploy/fpv-audio-pairing.service`
 
 ## Workflow
 
+The interface defaults to **Simple**: source folders, video lists, automatic matching, single-FPV counterpart search, pair review and aligned exports. Choose **Expert** at the top for technical settings, waveform/evidence tools, project recovery, validation and the selected-StickCam split-flight timeline. The choice is remembered per browser. Simple exports always use the full shared range and original frame rates.
+
 1. Name the session and browse to the FPV and StickCam folders. The StickCam browser starts at the FPV folder if none has been chosen yet. Mounted SMB shares are supported; paths refer to the server running the application.
 2. The app scans recording durations, codecs, audio availability, file modification dates and filename camera timestamps. Each recording has an audio/fingerprint/modified-date status table, with its modification date and time shown beneath the filename. Files remain in their source folders.
 3. Search all recordings, selected recordings on either side, or selected recordings on both sides. A 10%, 25% or 50% seed search samples one feed evenly while searching all candidates on the other feed. For a specific FPV clip, use the dedicated **Find StickCam counterpart** section: choose its filename and search against all audio-bearing StickCam recordings, with a ranked shortlist and progress in that section.
-4. Audio matching reads the first and last 30 seconds by default, suppresses repetitive spectral hashes, and compares spectral landmarks plus audio trends at the same offset. Expand the sampled range to find useful sounds farther from the ends. Fingerprints persist across app restarts; source size, modified date, algorithm and sampling settings determine cache validity.
+4. Audio matching reads the first and last 30 seconds by default, suppresses repetitive spectral hashes, and compares spectral landmarks plus audio trends at the same offset. Unresolved recordings automatically retry at larger boundaries up to 2 minutes per end by default; disable retries for a short scan, or raise the limit to 5 minutes. Fingerprints persist across app restarts; source size, modified date, algorithm and sampling settings determine cache validity.
 5. Review a candidate with both videos playing in sync throughout the full range where both have footage. Matching audio establishes the offset; its duration does not trim playback or exports. Green bands identify agreeing audio sections, with a button to jump to the first one. Adjust the offset in seconds or 0.05 second steps. A positive offset means an event occurs later in StickCam than in FPV. A manual pair can be opened when audio is missing or inconclusive.
-6. Confirm an alignment, whether found by audio, dates or manual adjustment. Its modified-date difference, duration-adjusted camera clock and sync offset are logged, and other overlapping recordings are suggested, including multiple FPV parts for one StickCam video. Candidate rows also show when modified dates corroborate an audio alignment. Suggestions remain unconfirmed until reviewed.
+6. Confirm a reviewed alignment. Independently verified audio/manual alignments teach the camera clock; a date-only confirmation needs an explicit independent content check to become a new anchor. Other overlapping recordings are suggested, including multiple FPV parts for one StickCam video. Candidate rows also show when modified dates corroborate an audio alignment. Suggestions remain unconfirmed until reviewed.
 7. Export the current confirmed pair or all confirmed pairs. Fast trim copies the original video/audio without re-encoding and keeps each source's frame cadence by default. Cuts between keyframes require editor support for MP4 edit lists. Accurate H.264 MP4 or DNxHR HQX MOV trimming is available, with original rates or an explicitly chosen constant-rate conversion. Optional trimming is relative to the common timeline. Output timing is inspected and recorded in the alignment manifest. Place both files at the same point in an editing timeline; confirm fast-cut playback in your editor.
 
 ## What confidence means
@@ -64,7 +66,7 @@ clock difference = StickCam start clock − FPV start clock + offset
 predicted offset = clock difference + FPV start clock − StickCam start clock
 ```
 
-Each predicted offset is intersected with both source durations to get a possible shared interval. There is no forced one-to-one assignment. A model from one flight is tentative; multiple independent confirmed flights can corroborate it. Clock differences disagreeing by more than two seconds disable suggestions for that clock. Repeated timestamps are excluded because copy operations and reset cameras can destroy ordering. Separate camera resets may require separate sessions.
+Each predicted offset is intersected with both source durations to get a possible shared interval. There is no forced one-to-one assignment. A model from one flight is tentative; multiple independent confirmed flights can corroborate it. Modified-date differences are compared with a configurable ±5-second tolerance (UI: 2/5/10); filename clocks retain ±2 seconds. Conflicting independent anchors disable suggestions for that clock. Date disagreements do not invalidate audio matches. Repeated timestamps are excluded because copy operations and reset cameras can destroy ordering. Separate camera resets may require separate sessions.
 
 ## Playback and storage
 
@@ -84,6 +86,17 @@ data/export-index/<session-id>/           # export-location metadata only
 
 **Deleting a session removes only its session document, fingerprints and previews. Source videos, export-location metadata and completed exports remain.** Saved exports can be downloaded even after their session is deleted, provided the output drive/share is available at the saved path. The ZIP download streams without writing a second copy of the export archive. Failed or cancelled exports can leave partial files at the chosen destination; these are not offered as completed downloads. Recursive source rescans exclude registered export folders.
 
-Set `FPV_AUDIO_DATA_DIR` to use a different dedicated storage location. Keep it separate from the original app's data. Processing runs in a bounded background queue; tasks show progress, elapsed time and an estimate once work has started. Cancellation is immediate for exports and occurs between sections for audio decoding.
+Set `FPV_AUDIO_DATA_DIR` to use a different dedicated storage location. Keep it separate from the original app's data. Cancelled/interrupted searches reuse saved comparison checkpoints. Exports resume checked completed pairs in the same output folder. Processing runs in a bounded background queue; tasks show progress, elapsed time and an estimate once work has started. Cancellation is immediate for exports and occurs between sections for audio decoding.
 
 The server is intended for a trusted local machine/LAN. SMB authentication is handled by the operating system's mounted share, not stored by this application.
+
+## Review, projects and diagnostics (0.4.0)
+
+- Review queue: **Reject**, **Review later**, **No counterpart**, filters and **Review next**. Decisions survive another search. Completion counts distinguish confirmed FPV parts, awaiting review, unsearched, unmatched and unavailable recordings.
+- **Flights & split recordings** orders FPV parts on each StickCam timeline, shows confirmed gaps/overlaps and conflicting owners, and exports confirmed parts together. A `flights.json` manifest accompanies the clips.
+- **Save project JSON** stores session decisions; **Save project + fingerprints** includes reusable audio NPZ caches, with a bounded 128 MiB bundle. **Open project** creates a separate session; relink its source folders before playback. No original videos are bundled.
+- Content-assisted relinking uses size plus 128 KiB head/tail samples, not a full-file integrity hash. Original saved camera dates and recording IDs are retained when recognized. Ambiguous/missing sources stay unresolved; legacy files without a verifiable identity need review.
+- Ten automatic session metadata backups are kept. Use **Relink recordings & recover session data** to restore; current JSON is preserved separately and exports stay outside recovery. A process lock prevents two CLI app instances using the same data folder.
+- **Accuracy & reference collection** runs known matching/non-matching labels through the current policy. Independent event checkpoints help review drift. Optional decoded export samples check the trim against originals. See [validation and limits](docs/VALIDATION.md).
+- Windows: `start.cmd` opens the interface; `start.ps1 -Lan` enables LAN access. `setup-windows.ps1` installs missing uv/FFmpeg prerequisites through winget before launching. Linux/macOS: `./start.sh`. All launchers use `uv.lock`.
+- **Installation & diagnostics** provides a local report with tool versions, folder permissions, disk space and optional preview decoders. Support reports omit source paths. CLI alternative: `uv run --frozen fpv-audio-pairing --check`.

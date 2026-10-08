@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from collections import defaultdict
 
 import numpy as np
@@ -99,7 +100,7 @@ def _segment_features(samples, start):
     )
 
 
-def extract_audio(path: str, boundary_seconds: float = BOUNDARY_SECONDS):
+def extract_audio(path: str, boundary_seconds: float = BOUNDARY_SECONDS, cancelled=None):
     info = probe_video(path)
     if not info["has_audio"]:
         return _empty()
@@ -112,7 +113,7 @@ def extract_audio(path: str, boundary_seconds: float = BOUNDARY_SECONDS):
     times_all, features_all, segment_ids, hashes_all, hash_times_all = [], [], [], [], []
     for segment, (start, length) in enumerate(sections):
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [
                     shutil.which("ffmpeg") or "ffmpeg",
                     "-nostdin",
@@ -137,15 +138,34 @@ def extract_audio(path: str, boundary_seconds: float = BOUNDARY_SECONDS):
                     "f32le",
                     "pipe:1",
                 ],
-                capture_output=True,
-                timeout=180,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-        except subprocess.TimeoutExpired:
-            continue  # Record an unusable audio result if decoding times out.
-        if result.returncode:
-            continue
+            started = time.monotonic()
+            try:
+                while True:
+                    if cancelled is not None and cancelled.is_set():
+                        raise RuntimeError("Cancelled")
+                    if time.monotonic() - started > 180:
+                        raise RuntimeError(f"Audio decoding timed out for {path}")
+                    try:
+                        stdout, stderr = process.communicate(timeout=.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate()
+        except OSError as exc:
+            raise RuntimeError(f"Cannot start FFmpeg audio decoding: {exc}") from exc
+        if process.returncode:
+            raise RuntimeError(f"Cannot decode audio from {path}: {stderr.decode(errors='replace')[-500:]}")
         samples = np.clip(
-            np.nan_to_num(np.frombuffer(result.stdout, "<f4"), nan=0, posinf=0, neginf=0), -4, 4
+            np.nan_to_num(np.frombuffer(stdout, "<f4"), nan=0, posinf=0, neginf=0), -4, 4
         )
         times, features = _segment_features(samples, start)
         hashes, hash_times = _landmarks(samples, start)

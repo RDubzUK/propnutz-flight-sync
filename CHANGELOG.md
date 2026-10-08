@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## Interface update — 8 October 2026
+
+- Restore FPV image previews on session cards in both interfaces. Select a recording near the session's mean modified date and cache one frame around 90 seconds in, using an earlier frame for shorter clips.
+- Make Simple the default interface: sessions/sources, video lists, automatic audio matching, counterpart search, pair review and full-overlap native-rate exports.
+- Keep detailed evidence, waveform/offset/checkpoint tools, projects, diagnostics, validation and split flights in Expert mode. Remember the interface choice per browser and preserve session data.
+- Replace the full list of flight groups with a StickCam dropdown, a non-overlapping proposed sequence and a full StickCam timeline preview. Switch FPV parts at their saved sync offsets and show StickCam alone through gaps.
+- Keep conflicting candidates available to review, and block incompatible split confirmations and grouped exports. Tolerate one source frame of timestamp rounding without changing saved alignments.
+
+## v0.4.0 — 8 October 2026
+
+- Add a persistent review queue, rejection/later/no-counterpart decisions, next review and completion counts.
+- Add adaptive audio retries, retaining each pair's best sampled evidence, saved comparison checkpoints, resume controls and outcome explanations.
+- Default modified-date tolerance to ±5 seconds, configurable in the UI; retain audio evidence when dates disagree. Date-only confirmations require independent content verification before teaching new clock anchors.
+- Add independent event checkpoints, individual source playback, drift/coverage warnings and explicitly labelled reference validation reports.
+- Group split FPV parts into StickCam flights with gap/overlap/owner warnings and grouped exports/flight manifests.
+- Add portable project JSON/fingerprint bundles, recording identity checks, relinking with retained camera dates, ten automatic backups and explicit JSON recovery.
+- Add an instance lock, local diagnostics and support reports, locked launchers and Windows prerequisite setup.
+- Resume checked completed export pairs, show FFmpeg progress and optionally compare decoded cut samples with originals.
+- Fix native-rate accurate export durations: disable FFmpeg-generated timecode tracks. Bound stream-copy MP4 presentation ends with edit lists to account for reordered packets.
+- Add known-answer automated checks and local HTTP/browser acceptance with disposable generated recordings. Windows/GPU/Resolve and large real-batch acceptance remain to be measured.
+
 
 - Add an export destination folder picker and typed paths, remembering the choice per session. Write single pairs directly into readable session/time folders and batches into numbered FPV-name subfolders; avoid overwriting earlier exports.
 - Show full output paths, maintain an export index outside session data, and retain ZIP downloads/session-deletion behavior for custom destinations and older GUID-folder exports. Exclude registered outputs from recursive source rescans and remove successful encoding logs from completed clip folders.

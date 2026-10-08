@@ -183,6 +183,8 @@ def export_pair(
             "2",
             "-metadata",
             "timecode=00:00:00:00",
+            "-write_tmcd",
+            "0",
             "-movflags",
             "+faststart",
             str(destination),
@@ -202,6 +204,12 @@ def export_pair(
             raise
         if progress:
             progress(f"Checking {kind} cut timing · {index + 1}/2")
+        if profile == "copy":
+            from .mp4_edits import shorten
+            try:
+                shorten(destination, duration)
+            except (OSError, ValueError, StopIteration) as exc:
+                raise RuntimeError(f"Cannot bound the MP4 presentation interval. Choose Accurate trim. {exc}") from exc
         output_timing[kind] = _output_info(destination, duration, source_fps,
                                           frame_count=frame_count, copy=profile == "copy", run=run)
         try:
@@ -284,6 +292,8 @@ def stream_archive(directory: Path, pair_directories=None):
                         raise ValueError("Invalid exported pair folder")
                     pair_dirs.append(directory / relative)
             with zipfile.ZipFile(Writer(), "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
+                if (directory / "flights.json").is_file():
+                    archive.write(directory / "flights.json", "flights.json")
                 for pair_dir in pair_dirs:
                     manifest = json.loads((pair_dir / "alignment.json").read_text(encoding="utf-8"))
                     for filename in (manifest["radio_export"], manifest["fpv_export"], "alignment.json"):

@@ -33,6 +33,7 @@ def get_or_extract(
     extract,
     identity: str | None = None,
     validate=None,
+    legacy_keys=(),
 ) -> dict[str, np.ndarray]:
     directory = Path(cache_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -46,14 +47,27 @@ def get_or_extract(
     key = _key(path, algorithm, config, identity)
     unchanged()
     target = directory / f"{kind}.{key}.npz"
-    if target.exists():
+    for candidate_key in (key, *legacy_keys):
+        if not isinstance(candidate_key, str) or len(candidate_key) != 64 or any(c not in "0123456789abcdef" for c in candidate_key):
+            continue
+        candidate = directory / f"{kind}.{candidate_key}.npz"
+        if not candidate.exists():
+            continue
         try:
-            with np.load(target, allow_pickle=False) as data:
-                if str(data["cache_key"].item()) == key:
+            with np.load(candidate, allow_pickle=False) as data:
+                if str(data["cache_key"].item()) == candidate_key:
                     fingerprint = {k: data[k] for k in data.files if k != "cache_key"}
                     if validate:
                         validate(fingerprint)
                     unchanged()
+                    if candidate_key != key:
+                        descriptor, name = tempfile.mkstemp(prefix=".fingerprint-", suffix=".npz", dir=directory)
+                        try:
+                            with os.fdopen(descriptor, "wb") as stream:
+                                np.savez_compressed(stream, cache_key=np.asarray(key), **fingerprint)
+                            os.replace(name, target)
+                        finally:
+                            Path(name).unlink(missing_ok=True)
                     return fingerprint
         except (OSError, ValueError, KeyError, EOFError, BadZipFile):
             pass

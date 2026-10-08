@@ -1,8 +1,22 @@
 # Using PropNutz Flight Sync
 
+## Simple and Expert interfaces
+
+**Simple** is the default. The selector at the top remembers your choice in this browser. Use sessions/source folders, video lists, Find matching flights, Find StickCam counterpart, Pair Review and Aligned exports. The leading candidate for each FPV clip is shown in Pair Review; the counterpart section can show alternative StickCam matches.
+
+Simple uses 30-second audio samples, automatic retries up to two minutes per end, all files in the selected scope, and the session's saved camera-date interpretation. Review both sources and choose **Confirm reviewed pair & suggest others**. This confirmation records that you checked the content. Exports use the full shared footage, stream copy and original frame rates. Hidden Expert trim/rate settings do not affect Simple exports.
+
+**Expert** exposes audio sampling/settings, detailed evidence and waveforms, manual offsets, timing checkpoints, project transfer/recovery, accuracy reports, diagnostics and split-flight review. Switching interfaces does not discard saved data. If a session needs recovery, Simple provides a button to open the required Expert tools.
+
+The detailed instructions below include Expert controls. In Simple, leave matching and export settings to the app; switch to Expert when you need to adjust them. Simple previews use automatic codec/acceleration selection and normal playback speed.
+
+In **Flights & split recordings**, choose one StickCam recording from the dropdown. Its complete timeline shows a proposed sequence of FPV parts with no overlaps. Preview a part or seek on the timeline: both videos play at the saved offset, and gaps show only StickCam. **Review & confirm this part** opens Pair Review for alignment changes and confirmation. Conflicting alternatives remain listed for inspection; no saved offsets are shifted to fit them. New confirmations and grouped exports reject overlapping parts of the same StickCam flight, allowing one frame of source timestamp rounding at joins.
+
 ## 1. Create a session
 
 Give the session a useful name, then choose separate FPV and StickCam folders. **Browse** navigates the machine running the app. The StickCam browser starts at the chosen FPV folder when its own path is blank. Choose **Use this folder** above the file list. Mounted network shares work if the server user can access them.
+
+Saved session cards show a cached FPV image in both Simple and Expert. The app chooses an FPV recording near the session's average modified date and takes a frame at about 90 seconds, or earlier for shorter clips. Only a still image is decoded; no full-video preview conversion is needed.
 
 Enable **Include subfolders** when required. Prepare the session and allow metadata scanning to finish. Session creation then folds away; use **New session** for another set of recordings. Existing sessions can be renamed or rescanned.
 
@@ -22,7 +36,7 @@ Green tick means available; red cross means absent/unusable; dash means not yet 
 - **Selected videos**, selecting only FPV clips, searches those against all audio-bearing StickCam clips.
 - Selecting only StickCam clips searches those against all audio-bearing FPV clips.
 - Selecting both sides compares only those selected subsets.
-- **Seed recordings** at 10%, 25% or 50% samples one feed evenly and retains the search candidates on the other. It reduces the initial search; it does not automatically confirm the unprocessed files.
+- In Expert, **Seed recordings** at 10%, 25% or 50% samples one feed evenly and retains the search candidates on the other. It reduces the initial search; it does not automatically confirm the unprocessed files.
 
 ## 3. Find matching flights
 
@@ -37,7 +51,7 @@ The shortlist combines spectral landmarks and independent audio trends at one pr
 Use the dedicated **Find StickCam counterpart** section between matching and pair review:
 
 1. Choose the FPV recording by filename; its duration and audio availability are shown.
-2. Choose how much audio to sample from each end, starting at 30 seconds.
+2. Simple chooses the audio sample size automatically. In Expert, choose how much audio to sample from each end, starting at 30 seconds.
 3. Click **Find StickCam counterpart**. It searches only that FPV clip against all readable audio-bearing StickCam recordings, regardless of list selections or the seed percentage in the general matcher.
 4. Follow progress and cancellation in this section. Saved fingerprints are reused.
 5. Review the ranked StickCam candidates. Confirmed pairs appear first, then audio candidates; existing learned timestamp suggestions remain clearly labelled.
@@ -77,7 +91,7 @@ Use the offset field or ±0.05 second buttons, apply the adjustment and replay. 
 
 ## 5. Confirm and suggest the rest
 
-Once playback looks aligned, choose **Confirm this pair & suggest others**. Every confirmed pair contributes, including audio matches, reviewed timestamp suggestions and manually aligned pairs. The app logs the raw modified-date difference and derives a camera start-clock difference using duration and offset, then immediately suggests other overlapping recordings and split FPV parts without analyzing their audio again.
+Once playback looks aligned, choose **Confirm this pair & suggest others**. Every independently verified pair contributes, including audio matches and manually aligned pairs. A timestamp suggestion requires the explicit independent-content checkbox before it becomes a new anchor. The app logs the raw modified-date difference and derives a camera start-clock difference using duration and offset, then immediately suggests other overlapping recordings and split FPV parts without analyzing their audio again.
 
 - Modification dates normally represent recording ends; select recording start when your files behave that way.
 - Optional filename timestamps are treated as recording starts.
@@ -85,7 +99,7 @@ Once playback looks aligned, choose **Confirm this pair & suggest others**. Ever
 - Conflicting confirmed clocks or repeated/reset timestamps are reported and excluded where appropriate.
 - A timestamp candidate is a **suggestion**, not an audio-confirmed match. Review it too.
 
-The clock panel lists the confirmed pairs used and their raw date differences. **Evidence** in Pair Review and the counterpart shortlist shows modified dates separately from audio. Date-based proposals are labelled **Modified-date suggestion**. An audio/manual candidate shows **Modified dates agree** when its sync offset is within two seconds of the learned clock prediction, or **Modified dates disagree** otherwise. Each row includes the predicted offset, difference, tolerance and number of independent confirmed flights. Expand **Confirmed pairs used** to see the supporting filenames and confirmed offsets.
+The clock panel lists the confirmed pairs used and their raw date differences. **Evidence** in Pair Review and the counterpart shortlist shows modified dates separately from audio. Date-based proposals are labelled **Modified-date suggestion**. An audio/manual candidate shows **Modified dates agree** when its sync offset is within the configured tolerance (five seconds by default) of the learned clock prediction, or **Modified dates disagree** otherwise. Each row includes the predicted offset, difference, tolerance and number of independent confirmed flights. Expand **Confirmed pairs used** to see the supporting filenames and confirmed offsets.
 
 The same information appears in a **Modified-date evidence** panel beneath the selected pair's preview. A confirmed pair is shown as a clock anchor; it is not counted as evidence for its own alignment. Conflicting clock anchors and repeated dates are explicitly identified as unusable evidence. Existing saved confirmations receive current date evidence when the session loads, without another audio search, rescan or offset change.
 
@@ -121,4 +135,30 @@ The current local version stores `session.json`, audio caches and preview fragme
 
 **Delete session data** removes that session's JSON and caches, keeping original recordings and completed exports. Deletion cannot be reversed in the app; restore a local backup to recover a session. If a job is running, cancel it and wait until it stops before deletion.
 
-This version does not yet import/download a session JSON from the interface or store sessions in remote clients' browsers. Those capabilities belong to the planned client-only version.
+Portable project JSON and optional fingerprint bundles can be saved/opened in Sessions. Processing and the active session still live on the app host; a remote client's browser does not become its data store.
+
+## Review queue and flight groups
+
+Use **Show pairs** to switch between awaiting review, all pairs, strong audio, confirmed, later or rejected. **Review next** opens the next available candidate. **Reject pair** and **Review later** persist across matching runs. Return a rejected/later pair to the queue when you want to reconsider it. In the unmatched list, **Mark no counterpart** dismisses that recording's current candidates and excludes it from ordinary all-video searches; **Allow searches again** restores its eligibility. Explicitly selecting it also allows a fresh search.
+
+The summary counts FPV parts, not independent flights. Unsearched means no completed attempt yet; unmatched means searched without an available candidate or explicitly marked no counterpart. Missing/error recordings are shown separately. **Flights & split recordings** groups parts under a StickCam file, orders them by their StickCam times and shows gaps/overlaps between confirmed parts. Conflicting confirmed StickCam owners remain visible. **Export confirmed flight parts** uses the export settings below; no files are concatenated and original frame rates stay independent. `flights.json` records each part's placement.
+
+## Audio retry and date tolerance
+
+Automatic retries start with your chosen boundary and expand unresolved FPV searches through 60/120/300 seconds as allowed by **Maximum audio per end**. Strong content candidates stop further expansion for that FPV clip. Each pair retains its best sampled evidence if a wider range contains more noise. All possible StickCam owners remain searchable; dates do not prune audio candidates. Disable retries for a bounded short scan. Per-recording outcomes explain unresolved evidence. Both fingerprints and completed comparison rounds can be resumed after cancellation/restart.
+
+Modified-date evidence defaults to **±5 seconds** (choose 2/5/10 in the UI); filename clocks remain ±2 seconds. This is clock evidence tolerance, not audio synchronization tolerance. A date disagreement never downgrades an audio match. Date-only confirmations do not teach new clock anchors until **I checked the content independently** is selected and the pair is confirmed again. Previously confirmed audio/manual pairs retain their anchor meaning.
+
+## Save, open, relink and recover
+
+In Sessions, **Save project JSON** downloads the session document. **Save project + fingerprints** adds audio caches, not originals or disposable previews. Open either on another installation with **Open project**; it creates a new session and leaves existing sessions untouched. Open **Relink recordings & recover session data**, choose the source folders and relink. Original recording IDs, reviewed offsets, stored camera dates and labels are preserved for recognized files.
+
+Relinking checks relative/name/size candidates plus a bounded head/tail fingerprint where available. This is not a whole-file integrity proof. Identical names in several folders remain unresolved. Legacy recordings without a saved content identity can need another review. A copied file's new modification date does not overwrite the saved camera date used by that project. Imported audio caches are validated before reuse; moving files does not require decoding them again when a compatible identity cache is available.
+
+Ten automatic metadata backups are kept under the session folder, no more than once a minute for ordinary progress writes, with extra snapshots before important review/relink changes. **Show backups → Restore selected backup** restores metadata only; the current JSON is kept separately. Existing exports are preserved through the independent export index. Deleting a session also deletes its internal backups; save a portable project first if you want to retain its review decisions.
+
+## Resume and accuracy checks
+
+**Resume saved task** appears for interrupted, failed or cancelled tasks. Search reuses durable completed recording comparisons. Export checks completed pairs against the original source signatures/alignment and their output timing, then reuses them; an incomplete pair is regenerated. A changed alignment requires a new export. FFmpeg processing displays per-source progress where available.
+
+Known answers, timing checkpoints, individual playback, measured reference reports and optional decoded export samples are explained in [Accuracy validation](VALIDATION.md). These controls supply evidence and recovery; they do not automatically certify a recording or stretch footage.
