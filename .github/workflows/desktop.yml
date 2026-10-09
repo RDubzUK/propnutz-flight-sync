@@ -1,0 +1,212 @@
+name: Desktop builds
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  version:
+    name: Validate package versions
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check package, lockfile, Python project, and release tag
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          package = json.loads(Path('package.json').read_text())
+          lock = json.loads(Path('package-lock.json').read_text())
+          project = tomllib.loads(Path('pyproject.toml').read_text())
+          version = package['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+              raise SystemExit(f'Expected an X.Y.Z package version, got {version!r}')
+          versions = {
+              'package-lock.json': lock['version'],
+              'package-lock.json root package': lock['packages']['']['version'],
+              'pyproject.toml': project['project']['version'],
+          }
+          for source, value in versions.items():
+              if value != version:
+                  raise SystemExit(f'{source} version {value!r} does not match {version!r}')
+          if os.environ['REF_TYPE'] == 'tag' and os.environ['REF_NAME'] != f'v{version}':
+              raise SystemExit(f'Release tag must be v{version}, got {os.environ["REF_NAME"]!r}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+          print(f'Validated version {version}')
+          PY
+
+  build:
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - runner: windows-2022
+            platform: win
+            arch: x64
+          - runner: macos-15-intel
+            platform: mac
+            arch: x64
+          - runner: macos-15
+            platform: mac
+            arch: arm64
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: latest-known
+          python-version: '3.11'
+          enable-cache: true
+      - name: Install locked Node dependencies
+        run: npm ci
+      - name: Use bundled media tools in backend tests
+        shell: bash
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const binaries = [require('ffmpeg-static'), require('@derhuerst/ffprobe-static')];
+          fs.appendFileSync(process.env.GITHUB_PATH, binaries.map(binary => path.dirname(binary)).join('\n') + '\n');
+          JS
+      - name: Install locked Python dependencies
+        run: uv sync --frozen --group desktop --python 3.11
+      - name: Test desktop shell
+        run: npm test
+      - name: Test Python backend
+        run: uv run --frozen --group desktop python -m unittest discover -s tests
+      - name: Freeze backend and stage media tools
+        run: npm run build:desktop
+      - name: Smoke-test frozen backend
+        run: npm run smoke:backend
+      - name: Package desktop installers
+        run: npm run dist -- --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Verify installer outputs
+        shell: bash
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readdirSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+
+          const { BUILD_PLATFORM: platform, BUILD_ARCH: arch, BUILD_VERSION: version } = process.env;
+          const extensions = { win: ['.exe'], linux: ['.AppImage', '.deb'], mac: ['.dmg', '.zip'] }[platform];
+          const files = readdirSync('release', { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
+          for (const extension of extensions) {
+            const matching = files.filter(file => file.endsWith(extension));
+            assert.equal(matching.length, 1, `Expected one ${extension} installer, found ${matching.length}`);
+            // Linux package formats use their native architecture spelling.
+            const packageArch = platform === 'linux' && arch === 'x64'
+              ? { '.AppImage': 'x86_64', '.deb': 'amd64' }[extension]
+              : arch;
+            assert.equal(matching[0], `propnutz-flight-sync-${version}-${platform}-${packageArch}${extension}`, 'Unexpected installer filename');
+            console.log(matching[0]);
+          }
+          JS
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: PropNutz-Flight-Sync-${{ needs.version.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Create draft release
+    needs: [version, build]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download installers from every platform
+        uses: actions/download-artifact@v8
+        with:
+          pattern: PropNutz-Flight-Sync-${{ needs.version.outputs.version }}-*
+          path: release-assets
+          merge-multiple: true
+      - name: Check complete release and create checksums
+        working-directory: release-assets
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          expected = {'.exe': 1, '.AppImage': 1, '.deb': 1, '.dmg': 2, '.zip': 2}
+          files = sorted(Path('.').iterdir())
+          if any(not path.is_file() or path.suffix not in expected for path in files):
+              raise SystemExit('Unexpected file or directory in release assets')
+          for extension, count in expected.items():
+              if sum(path.suffix == extension for path in files) != count:
+                  raise SystemExit(f'Expected {count} {extension} release assets')
+          with Path('SHA256SUMS').open('w') as checksums:
+              for path in files:
+                  with path.open('rb') as binary:
+                      digest = hashlib.file_digest(binary, 'sha256').hexdigest()
+                  checksums.write(f'{digest}  {path.name}\n')
+          PY
+      - name: Create or update draft release
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          assets=(*.exe *.AppImage *.deb *.dmg *.zip SHA256SUMS)
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$draft" != 'true' ]; then
+              echo 'Refusing to overwrite a published release.' >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --draft --verify-tag --generate-notes \
+              --title "PropNutz Flight Sync $RELEASE_TAG"
+          fi

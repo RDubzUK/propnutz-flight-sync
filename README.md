@@ -10,20 +10,25 @@ The package and project folder remain named `fpv-audio-pairing`. Barlow and Barl
 
 ## Documentation
 
+- [Desktop app](docs/DESKTOP.md): packaged Windows, Linux and macOS installation, desktop data folders, local builds and GitHub releases.
 - [Installation guide](docs/INSTALL.md): Windows, Linux and macOS setup, FFmpeg, LAN access, startup, updates and troubleshooting.
 - [User guide](docs/USER_GUIDE.md): matching scopes, pair review, alignment, clock suggestions, exports and session backups.
 - [Release notes](CHANGELOG.md): fixes and update history. Use v0.1.1 or later for the Windows frontend startup fix.
 - [Client-only website investigation](docs/BROWSER_FEASIBILITY.md): local JSON/files, browser processing, large-video limits and the recommended separate browser edition.
 - [Project plan](PROJECT_PLAN.md): implemented scope and remaining work.
 
-The repository is public: [RDubzUK/propnutz-flight-sync](https://github.com/RDubzUK/propnutz-flight-sync). Anyone can clone it or download a release source ZIP. Videos, session data, caches and exports are excluded from Git.
+The repository is public: [S33G/propnutz-flight-sync](https://github.com/S33G/propnutz-flight-sync). Anyone can clone it or download a release source ZIP. Videos, session data, caches and exports are excluded from Git.
 
-## Quick start
+## Desktop app
+
+Download the Windows `.exe`, Linux `.AppImage`/`.deb`, or macOS `.dmg`/`.zip` from [GitHub Releases](https://github.com/S33G/propnutz-flight-sync/releases) once a desktop release is published. Intel and Apple Silicon Macs have separate builds. The desktop app bundles Python, FFmpeg and ffprobe, so no separate runtime installation is needed. Initial builds are unsigned on Windows and ad-hoc signed, without notarization, on macOS; see the [desktop guide](docs/DESKTOP.md) for installation, data locations and build instructions.
+
+## Quick start from source
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [FFmpeg/ffprobe](https://ffmpeg.org/download.html) first. uv can install the required Python 3.11 interpreter. No Rust toolchain, GPU or original project is required.
 
 ```bash
-git clone https://github.com/RDubzUK/propnutz-flight-sync.git
+git clone https://github.com/S33G/propnutz-flight-sync.git
 cd propnutz-flight-sync
 uv sync --frozen --python 3.11
 uv run --frozen fpv-audio-pairing --host 127.0.0.1 --port 8768
@@ -72,7 +77,7 @@ Each predicted offset is intersected with both source durations to get a possibl
 
 Browser-compatible originals play directly with automatic buffering and HTTP range support. Other codecs use cached **4 second, 480p fragments near the playhead**, rather than creating a full 720p proxy before viewing. Playback reads up to six chunks ahead, including while temporarily paused to refill, and shows loading/buffering spinners on both feeds. StickCam audio is selected by default. **Preview acceleration: Auto** detects optional decoding support on the app host: NVIDIA CUDA, Linux VAAPI for Intel/AMD, Windows Direct3D 11 across vendors, or macOS VideoToolbox. Supported CUDA/VAAPI paths also resize on the GPU; preview encoding remains on the CPU. Unsupported drivers/clips fall back to CPU, and **CPU only** bypasses hardware attempts with a separate cache. Existing Auto chunks are reused. Preview generation is limited to two concurrent requests and its cache is pruned around 1 GiB. Browser H.264 Media Source support is required for fragment playback. Previews are 30fps; exports always read the originals and preserve source cadence by default.
 
-Default app storage:
+Default source-installation storage is under the project's `data/` directory. The desktop app uses a per-user application-data folder; see [desktop storage](docs/DESKTOP.md#data-updates-and-existing-projects). Both use this layout:
 
 ```text
 data/sessions/<session-id>/session.json

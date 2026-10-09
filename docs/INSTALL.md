@@ -1,5 +1,7 @@
 # Installation and operation
 
+For the packaged Windows, Linux or macOS application, use the [desktop installation guide](DESKTOP.md). It bundles Python, FFmpeg and ffprobe and stores data in your per-user application-data folder. The instructions below cover running the web application from source, including trusted LAN access.
+
 ## What this version runs
 
 This is a local Python application with a web interface. Python, FFmpeg, your recordings and session JSON files live on the **machine running the app**. Another PC can view that app over a trusted LAN, but its browser does not perform processing or store the shared session data. Hosting this Python version on a public web server would put users' processing and data on that server.
@@ -52,7 +54,7 @@ Git is optional if you download a release source ZIP. The repository is public, 
 ## 2. Download the project
 
 ```bash
-git clone https://github.com/RDubzUK/propnutz-flight-sync.git
+git clone https://github.com/S33G/propnutz-flight-sync.git
 cd propnutz-flight-sync
 ```
 

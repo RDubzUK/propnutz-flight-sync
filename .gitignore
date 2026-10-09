@@ -12,3 +12,5 @@ dist/
 *.tar.gz
 *.zip
 backups/
+node_modules/
+release/
