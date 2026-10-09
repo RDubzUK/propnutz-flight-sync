@@ -1,0 +1,43 @@
+{
+  "name": "propnutz-flight-sync",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Audio matching and aligned exports for FPV and StickCam recordings",
+  "author": "PropNutz",
+  "homepage": "https://github.com/S33G/propnutz-flight-sync",
+  "desktopName": "propnutz-flight-sync",
+  "main": "desktop/main.cjs",
+  "engines": { "node": ">=22.13.1" },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test desktop/test/*.test.cjs",
+    "build:desktop": "node scripts/build-desktop.cjs",
+    "smoke:backend": "node scripts/smoke-backend.cjs",
+    "pack": "electron-builder --dir --publish never",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@derhuerst/ffprobe-static": "5.3.0",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "ffmpeg-static": "5.3.0"
+  },
+  "build": {
+    "appId": "uk.co.propnutz.flight-sync",
+    "productName": "PropNutz Flight Sync",
+    "directories": { "output": "release", "buildResources": "desktop/resources" },
+    "files": ["desktop/*.cjs", "desktop/THIRD_PARTY.md", "package.json"],
+    "extraResources": [
+      { "from": "build/backend/flight-sync-backend", "to": "backend" },
+      { "from": "build/media", "to": "media" }
+    ],
+    "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "npmRebuild": false,
+    "publish": null,
+    "win": { "target": ["nsis"] },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "perMachine": false },
+    "linux": { "target": ["AppImage", "deb"], "category": "AudioVideo", "maintainer": "PropNutz", "syncDesktopName": true },
+    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.video", "identity": "-", "hardenedRuntime": false, "notarize": false }
+  }
+}
